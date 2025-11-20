@@ -1,4 +1,3 @@
-# zarr_utils.py hola que tal
 """
 Utility functions for reading, writing, and managing physiological data
 stored in Zarr format.
@@ -69,7 +68,7 @@ def normalize_pred_path(pred_name: str) -> str:
     """
     Normalitza el path d'una predicció.
     Regles:
-      - Si ja comença per 'pred/' o 'algorithms/' → es deixa igual.
+      - Si ja comença per 'algorithms/' → es deixa igual.
       - Si només és un nom (p. ex. 'CO') → es converteix a 'algorithms/CO'.
       - No obliga vendor ni subcarpetes.
     """
@@ -90,6 +89,12 @@ def safe_group(root: zarr.hierarchy.Group, path: str) -> zarr.hierarchy.Group:
     for p in parts:
         g = g.require_group(p)
     return g
+# path ->  /algo/algo/algo
+# root -> grup arrel del .zarr. l'objecte superior de tota la jerarquia
+# Agafa el root i va creant els subgrups si no existeixen
+# root.require_group(part del path) es una funcio que equival al
+# mkdir de linux. Si existeix el retorna, si no existeix el crea.
+# Millor per escriptura
 
 def get_group_if_exists(root: zarr.hierarchy.Group, path: str):
     """Return a subgroup if it exists, otherwise None."""
@@ -101,7 +106,8 @@ def get_group_if_exists(root: zarr.hierarchy.Group, path: str):
         else:
             return None
     return g
-
+# Aquest solament retorna si existeix pero si no NO crea res de nou.
+# Millor per lectura
 # ---------------------------------------------------------------------
 # 💾 ARRAY CREATION & APPENDING
 # ---------------------------------------------------------------------
@@ -125,6 +131,18 @@ def get_or_create_1d(
         fill_value=fill,
         overwrite=False,
     )
+# group -> És un subgrup intern dins d'aquesta jerarquia. 
+# És simplement un directori dins el Zarr.
+# name -> nom del array 1D que volem crear o retornar.
+# dtype -> Tipus de dades que volem emmagatzemar.
+# fill -> Valor per defecte per a les noves posicions.
+# compressor -> Tipus de compressió que volem utilitzar.
+# chunks -> Mida dels chunks per a l'emmagatzematge.
+# Crear o retornar un array 1D redimensionable dins el grup
+# shape=(0,) -> Comença l'array buit
+# maxshape=(None,) -> Permet redimensionar l'array infinitament.
+# overwrite=False -> No sobreescriu si ja existeix.
+#Clau per començar una escriptura incremental de dades o per llegir dades.
 
 def append_1d(arr: zarr.core.Array, data: np.ndarray) -> None:
     """Append 1D data to a resizable Zarr array."""
@@ -134,6 +152,13 @@ def append_1d(arr: zarr.core.Array, data: np.ndarray) -> None:
     n_new = n_old + len(data)
     arr.resize(n_new)
     arr[n_old:n_new] = data
+# arr ->
+# data ->
+# Afegeix dades 1D a un array Zarr redimensionable.
+# Si no hi ha dades per afegir, simplement retorna.
+# arr.shape -> Obtén la mida actual de l'array.
+# Recalcula la abans d'afegir les noves dades en l'array.
+# Per escritura
 
 def get_or_create_signal_pair(
     parent_group: zarr.hierarchy.Group,
@@ -158,6 +183,12 @@ def get_or_create_signal_pair(
     time_arr = get_or_create_1d(sig_group, "time_ms", dtype="i8", fill=-1)
     data_arr = get_or_create_1d(sig_group, "value", dtype=dtype, fill=np.nan)
     return time_arr, data_arr
+# parent_group -> El grup on volem crear o obtenir el par de senyals.
+# signal_path -> El camí complet del senyal dins la jerarquia.
+# dtype -> El tipus de dades per als valors del senyal.
+# Retorna un tuple amb dos arrays Zarr: un per als temps en ms i un altre per als valors del senyal.
+# Tant per iniciar una escritura o per llegir per algoritmes.
+
 
 # ---------------------------------------------------------------------
 # 🩺 READING / NAVIGATION
@@ -179,6 +210,15 @@ def load_track(root: zarr.hierarchy.Group, signal: str):
     t0 = int(t_abs_ms[0])
     t_rel_ms = (t_abs_ms - t0).astype(np.int64)
     return t_abs_ms, t_rel_ms, vals
+# root -> Grup arrel del .zarr on es troba el senyal.
+# track_path -> Camí complet del senyal dins la jerarquia.
+#Retorna una tupla amb tres arrays.
+# t_abs_ms -> Temps absoluts en mil·lisegons.
+# t_rel_ms -> Temps relatius en mil·lisegons (des del primer temps).
+# vals -> Valors del senyal.
+# Llença un KeyError si falta el senyal o el temps associat.
+# root[t_key][:] -> Accedeix a l'array Zarr i 
+# obté totes les dades com un array NumPy.
 
 def slice_by_seconds(t_rel_ms, vals, start_s, end_s):
     """Return a time-windowed segment of signal data."""
@@ -187,6 +227,13 @@ def slice_by_seconds(t_rel_ms, vals, start_s, end_s):
     i0 = np.searchsorted(t_rel_ms, start_ms, side="left")
     i1 = np.searchsorted(t_rel_ms, end_ms, side="left")
     return t_rel_ms[i0:i1], vals[i0:i1]
+#Extrau un segment temporal d'un senyal entre un inici i un final.
+# t_rel_ms -> Array de temps relatius en mil·lisegons.
+# vals -> Array de valors del senyal.
+# start_s -> Temps d'inici en segons.
+# end_s -> Temps final en segons.
+# Retarna trams talla dels arrays de temps relatius
+# i valors corresponents dins de la finestra especificada.
 
 def walk_arrays(node, base=""):
     """Recursively list all arrays (not groups) in the hierarchy."""
@@ -198,6 +245,8 @@ def walk_arrays(node, base=""):
         else:
             out.extend(walk_arrays(child, base=path))
     return out
+#És un recorregut recursiu per tota la jerarquia Zarr
+#Retorna tots els arrays, però no els grups
 
 def list_available_tracks(zarr_path):
     """Return lists of available signal and prediction tracks."""
@@ -209,7 +258,7 @@ def list_available_tracks(zarr_path):
     if "signals" in root:
         arrs = walk_arrays(root["signals"], base="signals")
         signals = [
-            p.replace("/value", "")  # ✅ CORRECCIÓ: era '/values'
+            p.replace("/value", "")  
             for p in arrs
             if p.endswith("/value")
         ]
@@ -217,13 +266,15 @@ def list_available_tracks(zarr_path):
     if "pred" in root:
         arrs = walk_arrays(root["pred"], base="pred")
         preds = [
-            p.replace("/value", "")  # ✅ CORRECCIÓ: era '/values'
+            p.replace("/value", "")  
             for p in arrs
             if p.endswith("/value")
         ]
     return signals, preds
+# Retorna dues llistes: una amb els senyals disponibles
+# i una altra amb les prediccions disponibles.
 
-def _track_exists(signals, track_name: str) -> bool:
+def track_exists(signals, track_name: str) -> bool:
     if "/" not in track_name:
         return False
     vendor, track = track_name.split("/", 1)
@@ -244,11 +295,18 @@ def vital_to_zarr(
     Convert a VitalDB file to Zarr.
     Only writes new, non-empty, non-NaN samples (append mode).
     """
+#vital_file -> Ruta del fitxer .vital d'origen.
+# zarr_path -> Ruta del fitxer Zarr de destinació.
+# tracks -> Llista de senyals a extreure del .vital.
+# window_secs -> Finestra temporal opcional per filtrar dades.
+# chunk_len -> Mida dels chunks per als arrays Zarr.
     from vitaldb import VitalFile
-
+# Primer fem una validació bàsica del fitxer .vital.
     if not os.path.exists(vital_file):
         raise FileNotFoundError(f"Missing .vital: {vital_file}")
 
+# Obrim el fitxer .vital amb únicament les senyals sol·licitades.
+# Crea o obre el contenidor Zarr de destinació.
     vf = VitalFile(vital_file, tracks)
     root = open_root(zarr_path)
 
@@ -258,10 +316,14 @@ def vital_to_zarr(
     root.attrs.setdefault("time_origin", "epoch1700_ms")
     root.attrs["last_updated"] = time.strftime("%Y-%m-%d %H:%M:%S")
 
+# Crea o aconsegueix el grup 
+# on escriure els senyals. "signals" en aquest cas.
     signals_root = safe_group(root, "signals")
     total_added = 0
     written_tracks = 0
 
+# Bucle per aconseguir cada senyal amb els 
+# seus respectius timestamps i valors
     for track in tracks:
         try:
             data = vf.to_numpy([track], interval=0, return_timestamp=True)
@@ -340,14 +402,14 @@ def leer_senyal(
     track: str,
     start_s: Optional[float] = None,
     end_s: Optional[float] = None
-) -> Optional[pd.DataFrame]:  # ✅ CORRECCIÓ: Type hint
+) -> Optional[pd.DataFrame]:  # Type hint
     """
     Función de alto nivel para leer un señal fácilmente.
     """
     root = open_root(zarr_path)
     t_abs_ms, t_rel_ms, values = load_track(root, track)
 
-    # ✅ CORRECCIÓ: Comprovar si és None
+    # Comprovar si és None
     if t_abs_ms is None:
         return None
     
@@ -463,7 +525,7 @@ def escribir_senyal(
     timestamps_ms: np.ndarray,
     values: np.ndarray,
     metadata: Optional[Dict] = None
-) -> Optional[bool]:  # ✅ CORRECCIÓ: Retornar None si falla
+) -> Optional[bool]:  # Retornar None si falla
     """Escribe un señal usando get_or_create_signal_pair() y append_1d()."""
     if timestamps_ms.size != values.size:
         return None
@@ -471,7 +533,7 @@ def escribir_senyal(
     root = open_root(zarr_path)
     signals_root = safe_group(root, "signals")
     
-    # ✅ CORRECCIÓ: No afegir 'signals/' si ja el té
+    # No afegir 'signals/' si ja el té
     # Usar get_or_create_signal_pair para obtener los arrays
     time_arr, data_arr = get_or_create_signal_pair(signals_root, track)
     
@@ -481,7 +543,7 @@ def escribir_senyal(
     
     # Guardar metadata si se proporciona
     if metadata:
-        # ✅ CORRECCIÓ: Definir path_track correctament
+        # Definir path_track correctament
         path_parts = track.split("/")
         grp = signals_root
         for part in path_parts:
@@ -531,7 +593,7 @@ def escribir_prediccion(
 
 def obtener_info_zarr(zarr_path: str) -> Dict:
     """Resumen del contenido usando list_available_tracks() y load_track()."""
-    # ✅ CORRECCIÓ: list_available_tracks ja accepta zarr_path
+    # list_available_tracks ja accepta zarr_path
     signals, preds = list_available_tracks(zarr_path)
     
     root = open_root(zarr_path)
