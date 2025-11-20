@@ -8,6 +8,7 @@ Compatible with Zarr v2 (appendable 1D datasets, Blosc compression).
 import os
 import time
 import numpy as np
+from pyparsing import Union
 import zarr
 import pandas as pd
 from numcodecs import Blosc
@@ -22,6 +23,7 @@ from typing import Optional, Dict, List, Tuple
 _DEFAULT_COMPRESSOR = Blosc(cname="zstd", clevel=5, shuffle=Blosc.SHUFFLE)
 _DEFAULT_CHUNK = (60_000,)  # ~5 min at 200 Hz
 STORE_PATH = os.path.join("results", "BOX01_20251024.zarr")
+FORMATO_TIMESTAMP = "%Y-%m-%d %H:%M:%S"
 
 # ---------------------------------------------------------------------
 # 🧱 BASIC HELPERS
@@ -197,7 +199,7 @@ def load_track(root: zarr.hierarchy.Group, signal: str):
     """Return (t_abs_ms, t_rel_ms, values) for a signal."""
     track_path = normalize_signal_path(signal)
     t_key = f"{track_path}/time_ms"
-    v_key = f"{track_path}/value"  # ✅ CORRECCIÓ: era 'vaules'
+    v_key = f"{track_path}/value"  
     
     if t_key not in root or v_key not in root:
         return None, None, None
@@ -242,7 +244,7 @@ def walk_arrays(node, base=""):
         path = f"{base}/{name}" if base else name
         if hasattr(child, "shape") and hasattr(child, "dtype"):
             out.append(path)
-        else:
+        elif isinstance(child, zarr.hierarchy.Group):  # Afegir comprovació explícita
             out.extend(walk_arrays(child, base=path))
     return out
 #És un recorregut recursiu per tota la jerarquia Zarr
@@ -256,20 +258,23 @@ def list_available_tracks(zarr_path):
     preds = []
     
     if "signals" in root:
-        arrs = walk_arrays(root["signals"], base="signals")
+        # NO passar base="signals", walk_arrays ja el construeix
+        arrs = walk_arrays(root["signals"])
         signals = [
-            p.replace("/value", "")  
+            f"signals/{p.replace('/value', '')}"  # Afegir prefix aquí
             for p in arrs
             if p.endswith("/value")
         ]
 
-    if "pred" in root:
-        arrs = walk_arrays(root["pred"], base="pred")
+    if "algorithms" in root:
+        # Mateix canvi aquí
+        arrs = walk_arrays(root["algorithms"])
         preds = [
-            p.replace("/value", "")  
+            f"algorithms/{p.replace('/value', '')}"  # Afegir prefix aquí
             for p in arrs
             if p.endswith("/value")
         ]
+    
     return signals, preds
 # Retorna dues llistes: una amb els senyals disponibles
 # i una altra amb les prediccions disponibles.
@@ -464,7 +469,7 @@ def leer_prediccion(
     end_s: Optional[float] = None
 ) -> Optional[pd.DataFrame]:
     """
-    Lee una predicción almacenada en algorithms/ o pred/, normalizando el path.
+    Lee una predicción almacenada en algorithms/, normalizando el path.
 
     Retorna un DataFrame con:
         t_abs_ms
@@ -713,3 +718,39 @@ def get_track_names_simplified(zarr_path: str) -> List[str]:
             track_name = parts[-2]
             final_names.append(track_name)
     return final_names
+
+def string_to_epoch1700(date_str: str, formato: str = FORMATO_TIMESTAMP) -> Union[float, None]:
+    """
+    Convierte una cadena de texto de fecha/hora (asumiendo que es UTC) 
+    a segundos transcurridos desde 1700-01-01 UTC.
+    
+    Args:
+        date_str: La cadena de fecha/hora (ej: '2025-11-20 13:03:00').
+        formato: El formato de la cadena (por defecto: '%Y-%m-%d %H:%M:%S').
+        
+    Returns:
+        Número de segundos (float) o None si falla o la fecha es anterior a 1700.
+    """
+    try:
+        # 1. Parsear la cadena a un objeto datetime (será 'naive' sin zona horaria)
+        dt_naive = datetime.strptime(date_str, formato)
+        
+        # 2. Asignar la zona horaria UTC para que sea compatible con epoch_1700
+        #    (Esto es crucial para la resta)
+        dt_utc = dt_naive.replace(tzinfo=timezone.utc)
+        
+    except ValueError as e:
+        print(f"[ERROR] Formato de fecha incorrecto: {e}")
+        return None
+
+    # 3. Definir el punto de referencia (Epoch 1700 UTC)
+    epoch_1700 = datetime(1700, 1, 1, tzinfo=timezone.utc)
+    
+    # 4. Calcular la diferencia
+    if dt_utc < epoch_1700:
+        return None
+        
+    time_difference: timedelta = dt_utc - epoch_1700
+    
+    # 5. Devolver la diferencia total en segundos
+    return time_difference.total_seconds()
