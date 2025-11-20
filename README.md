@@ -2,6 +2,11 @@
 
 ## Streaming
 
+Encara queden moltes coses a canviar i millorar:
+- Comentaris cristians (sense insultar a ningu i legibles pel ull huma)
+- Que acabin de funcionar els documents que toquin (zarr_to_algorithms)
+- Fer que puguin ser cridats des de un main (Adaptacio del codi)
+
 Dins de la carpeta de Streaming podem trobar els següents archius:
 
 - Streaming_to_zarr.py: Programa que s'encarrega de la lectura dels fitxers .vital en format Streaming o en format PROVA.
