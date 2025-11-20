@@ -1,4 +1,7 @@
 import time
+from Streaming import monitorizar_actualizacion_recurso
+from Algorithms import ejecutar_algoritmos
+from Interface import actualizar_interfaz
 
 def main():
     modo = input("Selecciona modo (online/offline): ")
