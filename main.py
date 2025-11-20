@@ -1,7 +1,4 @@
 import time
-from modulo_monitor import monitorizar_actualizacion_recurso
-from modulo_algoritmos import ejecutar_algoritmos
-from modulo_interfaz import actualizar_interfaz
 
 def main():
     modo = input("Selecciona modo (online/offline): ")
