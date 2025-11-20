@@ -240,44 +240,94 @@ def slice_by_seconds(t_rel_ms, vals, start_s, end_s):
 def walk_arrays(node, base=""):
     """Recursively list all arrays (not groups) in the hierarchy."""
     out = []
+    
+    # Debug: veure què hi ha dins del node
+    print(f"[DEBUG walk_arrays] Explorant node amb base='{base}'")
+    print(f"[DEBUG walk_arrays] Items en node: {list(node.keys()) if hasattr(node, 'keys') else 'NO KEYS'}")
+    
     for name, child in node.items():
         path = f"{base}/{name}" if base else name
+        print(f"[DEBUG walk_arrays] Processant: {path}, type: {type(child)}")
+        
+        # Comprovar si és un array (té shape i dtype)
         if hasattr(child, "shape") and hasattr(child, "dtype"):
+            print(f"[DEBUG walk_arrays] ✓ És un array: {path}, shape={child.shape}")
             out.append(path)
-        elif isinstance(child, zarr.hierarchy.Group):  # Afegir comprovació explícita
+        elif isinstance(child, zarr.hierarchy.Group):
+            print(f"[DEBUG walk_arrays] → És un grup, entrant recursivament...")
             out.extend(walk_arrays(child, base=path))
+        else:
+            print(f"[DEBUG walk_arrays] ? Tipus desconegut, saltant...")
+    
+    print(f"[DEBUG walk_arrays] Arrays trobats amb base='{base}': {out}")
     return out
-#És un recorregut recursiu per tota la jerarquia Zarr
-#Retorna tots els arrays, però no els grups
+
 
 def list_available_tracks(zarr_path):
     """Return lists of available signal and prediction tracks."""
+    print(f"\n[DEBUG] Obrint zarr: {zarr_path}")
     root = open_root(zarr_path)
+    
+    print(f"[DEBUG] Contingut del root: {list(root.keys())}")
+    print(f"[DEBUG] Type del root: {type(root)}")
 
     signals = []
     preds = []
     
     if "signals" in root:
-        # NO passar base="signals", walk_arrays ja el construeix
+        print(f"\n[DEBUG] Explorant 'signals'...")
+        print(f"[DEBUG] Type de root['signals']: {type(root['signals'])}")
+        
         arrs = walk_arrays(root["signals"])
-        signals = [
-            f"signals/{p.replace('/value', '')}"  # Afegir prefix aquí
-            for p in arrs
-            if p.endswith("/value")
-        ]
+        print(f"[DEBUG] Arrays trobats a signals: {arrs}")
+        
+        for p in arrs:
+            if p.endswith("/value"):
+                track_path = p.replace("/value", "")
+                signals.append(f"signals/{track_path}")
+        
+        print(f"[DEBUG] Senyals finals: {signals}")
 
     if "algorithms" in root:
-        # Mateix canvi aquí
+        print(f"\n[DEBUG] Explorant 'algorithms'...")
         arrs = walk_arrays(root["algorithms"])
-        preds = [
-            f"algorithms/{p.replace('/value', '')}"  # Afegir prefix aquí
-            for p in arrs
-            if p.endswith("/value")
-        ]
+        print(f"[DEBUG] Arrays trobats a algorithms: {arrs}")
+        
+        for p in arrs:
+            if p.endswith("/value"):
+                track_path = p.replace("/value", "")
+                preds.append(f"algorithms/{track_path}")
+        
+        print(f"[DEBUG] Prediccions finals: {preds}")
     
     return signals, preds
-# Retorna dues llistes: una amb els senyals disponibles
-# i una altra amb les prediccions disponibles.
+
+
+def get_track_names_simplified(zarr_path: str) -> List[str]:
+    """
+    Obtiene los paths de las pistas disponibles y retorna solo el nombre de la señal, (ej: 'ECG_HR')
+    extrayendo el penúltimo directorio del path completo.
+
+    Args:
+        zarr_path: Ruta al archivo Zarr (ej: "results/session_data.zarr")
+
+    Returns:
+        Una lista de strings con los nombres simplificados de las pistas disponibles.
+    """
+    # CORRECCIÓ: passar zarr_path en lloc de root
+    signal_paths, preds_paths = list_available_tracks(zarr_path)
+
+    all_tracks_paths = signal_paths + preds_paths
+
+    final_names = []
+    for track_path in all_tracks_paths:
+        parts = track_path.split('/')
+        if len(parts) >= 2:
+            track_name = parts[-2]
+            final_names.append(track_name)
+    
+    return final_names
+
 
 def track_exists(signals, track_name: str) -> bool:
     if "/" not in track_name:
