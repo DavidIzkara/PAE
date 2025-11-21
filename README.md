@@ -4,7 +4,7 @@
 
 Encara queden moltes coses a canviar i millorar:
 - Comentaris cristians (sense insultar a ningu i legibles pel ull huma)
-- Que acabin de funcionar els documents que toquin (zarr_to_algorithms)
+- De zarr_to_algorithm, falta la part de un cop recollides les dades del update, cridar els algoritmes adients per executarlos
 - Fer que puguin ser cridats des de un main (Adaptacio del codi)
 
 Dins de la carpeta de Streaming podem trobar els següents archius:
@@ -18,7 +18,8 @@ Dins de la carpeta de Streaming podem trobar els següents archius:
       s'actualitzin al .vital.
 
 - utils_Streaming.py: Programa de ajuda pel Streaming amb funcions utils
-- utils_zarr.py: Programa de ajuda pel tractament del zarr (algo diferent del altre perque estic fent proves pero despres sera     el mateix doc)
-- zarr_to_algorithms.py: Programa que monitoritza els timestamps del zar per detectar un canvi en ells i poder determinar que     hi ha hagut un update, posteriorment hauria de agafar els segons respectius de la update i passarlos als algoritmes perque     facin la seva magia alla
+- utils_zarr.py: Programa de ajuda pel tractament del zarr (algo diferent del altre perque estic fent proves pero despres sera     el mateix doc o aquesta es la idea)
+- zarr_to_algorithms.py: Programa que monitoritza els timestamps del zar per detectar un canvi en ells i poder determinar que     hi ha hagut un update, posteriorment carrega nomes les dades del update procedents del .vital (en format de llista de dataframes) i mira quins algoritmes pot executar amb elles (fins aqui esta fet), llavors hauria de passa les dades als algoritmes possibles i alla farien la seva magia.
   Consta de la funció, monitorizar_actualizacion_recursivo: La qual vigila el zarr fins que hi hagi el canvi de timestamp, per        retornar True
+                      
   
