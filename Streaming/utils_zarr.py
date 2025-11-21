@@ -72,9 +72,8 @@ def get_track_names_simplified(zarr_path: str) -> List[str]:
     Returns:
         Una lista de strings con los nombres simplificados de las pistas disponibles.
     """
-    root = open_root(zarr_path)
     
-    signal_paths, preds_paths = list_available_tracks(root)
+    signal_paths, preds_paths = list_available_tracks(zarr_path)
 
     all_tracks_paths = signal_paths + preds_paths
 
@@ -82,7 +81,7 @@ def get_track_names_simplified(zarr_path: str) -> List[str]:
     for track_path in all_tracks_paths:
         parts = track_path.split('/')
         if len(parts) >= 2:
-            track_name = parts[-2]
+            track_name = parts[-1]
             final_names.append(track_name)
     return final_names
 
