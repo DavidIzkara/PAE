@@ -2,104 +2,14 @@ import zarr
 from numcodecs import Blosc 
 import os
 import time
-import threading
+import numpy as np
+import pandas as pd
 
 from utils_Streaming import OUTPUT_DIR
-from utils_zarr import leer_zattrs_de_grupo, FRAME_SIGNAL_DEMO, leer_senyal, FORMATO_TIMESTAMP, string_to_epoch1700
+from utils_zarr import leer_zattrs_de_grupo, FRAME_SIGNAL_DEMO, FORMATO_TIMESTAMP, get_track_names_simplified
+from check_availability import check_availability
 
 ZARR_PATH = os.path.join(OUTPUT_DIR, "session_data.zarr") # Ruta al archivo Zarr de ejemplo
-
-## Ejemplo de uso:
-"""
-Name = "ECG_HR"
-
-a = list_available_tracks(open_root(ZARR_PATH))  # Obtener la lista de tracks de señales
-
-print("Tracks de señales disponibles en el Zarr:") 
-for track in a:
-    print(f" - {track}")
-"""
-
-## Mirar les spects de tots els tracks
-""""
-nombres_pistas = get_track_names_simplified(ZARR_PATH)
-print("Nombres simplificados de pistas disponibles en el Zarr (con sus specs):")
-for names in nombres_pistas:
-    print(f" - {names}")
-    metadatos = leer_zattrs_de_grupo(ZARR_PATH, FRAME_SIGNAL + names)
-    for clave, valor in metadatos.items():
-        print(f"    - {clave}: {valor}")
-"""
-## Prueva simple de lectura de 'last_updated' y cálculo de diferencia de tiempo
-"""
-metadatos_track = leer_zattrs_de_grupo(ZARR_PATH, FRAME_SIGNAL + track)
-last_updated = metadatos_track['last_updated']
-diferencia_tiempo = time.mktime(time.strptime(time.strftime(FORMATO_TIMESTAMP), FORMATO_TIMESTAMP)) - time.mktime(time.strptime(last_updated, FORMATO_TIMESTAMP))
-
-print(f"Diferencia de tiempo entre ahora y la última actualización de '{track}': {diferencia_tiempo} segundos")
-"""
-
-## Prueva actualización en bucle (no me gusta mucho asi, pero funciona para prueva ràpida) (como no puedo escojer varias tracks a la vez para mirar la actualización ns)
-"""
-diferencia_tiempo_anterior = 10000
-
-print(f"--- Iniciando Monitoreo de Actualización para la Pista: {track} ---")
-print("Presione Ctrl+C para detener.")
-
-while True:
-    try:
-        # Obtener y convertir el timestamp
-        metadatos_track = leer_zattrs_de_grupo(ZARR_PATH, FRAME_SIGNAL + track)
-        last_updated_str = metadatos_track.get('last_updated')
-
-        if not last_updated_str:
-            print(f"[ERROR] Clave 'last_updated' no encontrada. Esperando 5s...")
-            time.sleep(5.0)
-            continue
-            
-        # Calcular la diferencia de tiempo
-        diferencia_tiempo = time.mktime(time.strptime(time.strftime(FORMATO_TIMESTAMP), FORMATO_TIMESTAMP)) - time.mktime(time.strptime(last_updated_str, FORMATO_TIMESTAMP))
-        print(f"Tiempo sin actualizar: {diferencia_tiempo:.2f} s. ", end="")
-
-        # Verificar si hubo una actualización (Diferencia de tiempo menor que la anterior)
-        if diferencia_tiempo < diferencia_tiempo_anterior:
-            # Esta condición es cierta solo si 'last_updated' ha avanzado en el Zarr.
-            
-            # Ignorar la primera iteración cuando diferencia_tiempo_anterior es la predeterminada
-            if diferencia_tiempo_anterior != 10000:
-                 print(f"\n ¡ACTUALIZACIÓN DETECTADA! Datos de {track} cambiaron.")
-                 print(f"   [INFO] Diferencia anterior: {diferencia_tiempo_anterior:.2f} s")
-                 print(f"   [ACCIÓN] Aquí iría la llamada a funciones para leer y procesar los nuevos datos.")
-
-        # Determinar el intervalo de espera basado en la diferencia de tiempo actual
-        if 0 <= diferencia_tiempo <= 10:
-            sleep_time = 5.0
-        elif 10 < diferencia_tiempo <= 20:
-            sleep_time = 1.0
-        else: # diferencia_tiempo > 20
-            sleep_time = 0.5
-
-        # Actualizar el valor anterior y esperar
-        diferencia_tiempo_anterior = diferencia_tiempo
-        
-        print(f"Próxima verificación en {sleep_time} s...")
-        time.sleep(sleep_time)
-
-    except KeyboardInterrupt:
-        # Permite al usuario detener el bucle con Ctrl+C
-        print("\n--- Monitoreo detenido por el usuario. ---")
-        break
-    except ValueError as ve:
-        # Captura errores si el formato de fecha es incorrecto
-        print(f"\n[ERROR CRÍTICO] Error al parsear fecha: {ve}. Reintentando en 5s.")
-        time.sleep(5)
-    except Exception as e:
-        # Captura cualquier otro error (ej. Zarr no disponible)
-        print(f"\n[ERROR CRÍTICO] Ocurrió un error en el bucle: {e}. Reintentando en 5s.")
-        time.sleep(5)
-"""
-
-## Lo Mismo pero en función
 
 def monitorizar_actualizacion_recursivo(
     diferencia_anterior_segundos: float = 10000
@@ -167,30 +77,112 @@ def monitorizar_actualizacion_recursivo(
     except Exception as e:
         print(f"\n[ERROR CRÍTICO] Ocurrió un error: {e}. Deteniendo el monitoreo.")
         return False
+    
+
+
+def leer_ultimas_muestras_zarr(
+    zarr_path: str, 
+    sample: str, 
+    last_samples: int
+) -> pd.DataFrame:
+    """
+    Recupera las últimas 'last_samples' muestras (time_ms y value) de una pista
+    específica dentro del contenedor Zarr y las devuelve como un DataFrame.
+
+    Args:
+        zarr_path: La ruta completa al archivo .zarr (el contenedor raíz).
+        track: El nombre de la pista (ej. "signals/Intelliuve/ECG_HR").
+        last_samples: El número N de muestras a recuperar desde el final del array.
+
+    Returns:
+        Un pandas.DataFrame con las columnas ['time_ms', 'value'].
+        Si el track no existe o está vacío, devuelve un DataFrame vacío.
+    """
+    
+    # Definir la estructura del DataFrame vacío para manejar errores o datos no encontrados
+    empty_df = pd.DataFrame(columns=['time_ms', 'value'])
+    empty_df['time_ms'] = empty_df['time_ms'].astype(np.int64)
+    empty_df['value'] = empty_df['value'].astype(np.float32)
+
+    try:
+        # Abrir el contenedor Zarr en modo sólo lectura
+        root = zarr.open(zarr_path, mode='r')
+        
+        # Acceder al grupo de la pista
+        if sample not in root:
+            print(f"[ERROR] La pista '{sample}' no se encuentra en Zarr en la ruta '{sample}'.")
+            return empty_df
+            
+        grp = root[sample]
+        
+        # Verificar que los datasets 'time_ms' y 'value' existan
+        if "time_ms" not in grp or "value" not in grp:
+            print(f"[ERROR] Datasets 'time_ms' o 'value' faltan en el grupo '{sample}'.")
+            return empty_df
+            
+        ds_time = grp["time_ms"]
+        ds_val = grp["value"]
+        
+        # 1. Determinar la longitud total de la pista
+        total_samples = ds_time.shape[0]
+        
+        if total_samples == 0:
+            return empty_df
+            
+        # 2. Calcular el índice de inicio para el slicing
+        start_index = max(0, total_samples - last_samples)
+        
+        # 3. Aplicar el slicing para leer las N últimas muestras
+        time_slice = ds_time[start_index:]
+        value_slice = ds_val[start_index:]
+        
+        # 4. Crear el DataFrame
+        df = pd.DataFrame({
+            'time_ms': time_slice,
+            'value': value_slice
+        })
+        
+        return df
+
+    except FileNotFoundError:
+        print(f"[ERROR] El archivo Zarr no se encontró en la ruta: {zarr_path}")
+        return empty_df
+    except Exception as e:
+        print(f"[ERROR CRÍTICO] Ocurrió un error al leer Zarr: {e}")
+        return empty_df
+
 
 # Ejemplo de uso de la función recursiva
 if __name__ == "__main__":
     try:
-        traks_a_monitorizar = ["ECG", "NIBP_DBP", "SPO2_SAT"] # Ejemplo de tracks 
+        # traks_a_monitorizar = ["ECG", "NIBP_DBP", "SPO2_SAT"] # Ejemplo de tracks 
 
-        print(f"--- Iniciando Monitoreo Recursivo para la Pistas ---")
+        print(f"--- Iniciando Monitoreo Recursivo para los Tracks ---")
 
         if monitorizar_actualizacion_recursivo():
             print("\n¡ACTUALIZACIÓN DETECTADA !")
-            time.sleep(1.0) # Pequeña pausa antes de leer los metadatos
+            # time.sleep(1.0) # Pequeña pausa antes de leer los metadatos
             metadatos_general = leer_zattrs_de_grupo(ZARR_PATH, "")
-            for track in traks_a_monitorizar:
+            tracks = get_track_names_simplified(ZARR_PATH)
+            tracks_updated = []
+            dataframes = {}
+            for track in tracks:
                 metadatos_track = leer_zattrs_de_grupo(ZARR_PATH, FRAME_SIGNAL_DEMO + track)
                 if metadatos_track is not None:
                     if metadatos_track.get("last_updated") == metadatos_general.get("last_updated"):
-                        print(f"   - La pista '{track}' fue actualizada.")
-                        print(f"        - Ultima actualización contiene datos de {metadatos_track.get('last_update_secs')} segundos.")
-                        segundos = string_to_epoch1700(metadatos_track.get("last_updated"))
-                        datos_track = leer_senyal(ZARR_PATH, FRAME_SIGNAL_DEMO + track, segundos - metadatos_track.get("last_update_secs"), segundos)
-                        print(f"        - Datos leídos: {datos_track}")
+                        print(f"   - La track '{track}' fue actualizada.")
+                        print(f"        - Ultima actualización contiene datos de {metadatos_track.get('last_update_secs')} segundos que se representan en {metadatos_track.get('last_update_samples')} samples")
+                        sample = FRAME_SIGNAL_DEMO + track
+                        df_track = leer_ultimas_muestras_zarr(ZARR_PATH, sample, metadatos_track.get('last_update_samples'))
+                        dataframes[sample.removeprefix("signals/")] = df_track
+                        print(f"        - Se guarda el dataframe en la lista.")
+                        tracks_updated.append(track)
                     else:
-                        print(f"   - La pista '{track}' NO fue actualizada.")
+                        print(f"   - La track '{track}' NO fue actualizada.")
                     
-
+            print(f" - Todos los dataframes actualizados") 
+            print(f" Lista de variables recogidas: {tracks_updated}")
+            list_available = check_availability(tracks_updated)
+            print(f" Algoritmos que se puedan calcular: {list_available}")
     except KeyboardInterrupt:
         print("\n--- Monitoreo detenido por el usuario. ---")
