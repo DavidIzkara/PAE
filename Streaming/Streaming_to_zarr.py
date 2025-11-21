@@ -2,7 +2,6 @@ import os
 import time
 import numpy as np
 import random 
-import zarr
 from utils_zarr import safe_group, get_group_if_exists, append_1d, open_root
 from utils_Streaming import OUTPUT_DIR, WAVE_TRACKS_FREQUENCIES, WAVE_STANDARD_RATE, obtener_vital_timestamp, obtener_directorio_del_dia, obtener_vital_mas_reciente
 from numcodecs import Blosc 
@@ -30,7 +29,7 @@ _COMPRESSOR = Blosc(cname='zstd', clevel=5, shuffle=Blosc.BITSHUFFLE)
 def vital_to_zarr_streaming(
     vital_path: str,
     zarr_path: str,
-    last_read_counts: dict,
+    last_read_counts: dict, 
     simulated_growth_seconds: float | None = None, # Renombrado de window_secs
     chunk_len: int = 30000,
 ) -> dict: 
@@ -60,7 +59,7 @@ def vital_to_zarr_streaming(
     new_last_read_counts = last_read_counts.copy() 
 
     for track in available_tracks:
-        rate = 1.0 
+        rate = 0.5 
         interval = 1.0 
         track_type = "NUM"
         
@@ -181,6 +180,7 @@ def vital_to_zarr_streaming(
                 grp.attrs["last_update_secs"] = (round((current_total_count - last_count) / rate)) - 1
             else: # En caso que el calcul dongui un valor menor al real
                 grp.attrs["last_update_secs"] = round((current_total_count - last_count) / rate)
+        grp.attrs["last_update_samples"] = ts_ms.size
         
         print(f"[{track}: {track_type} {rate:.1f} Hz] +{ts_ms.size} mostres (total={ds_time.shape[0]})")
         total_added_samples += int(ts_ms.size)
