@@ -6,8 +6,14 @@ import numpy as np
 import pandas as pd
 
 from utils_Streaming import OUTPUT_DIR
-from utils_zarr import leer_zattrs_de_grupo, FRAME_SIGNAL_DEMO, FORMATO_TIMESTAMP, get_track_names_simplified
+from utils_zarr import leer_zattrs_de_grupo, FRAME_SIGNAL_DEMO, FRAME_SIGNAL, FORMATO_TIMESTAMP, get_track_names_simplified
 from check_availability import check_availability
+
+from Algorithms.blood_pressure_variability import BloodPressureVariability # Este no se puede enseñar por pantalla
+from Algorithms.cardiac_output import CardiacOutput
+from Algorithms.heart_rate_variability import HeartRateVariability # Este no se puede enseñar por pantalla
+from Algorithms.shock_index import ShockIndex
+
 
 ZARR_PATH = os.path.join(OUTPUT_DIR, "session_data.zarr") # Ruta al archivo Zarr de ejemplo
 
@@ -184,5 +190,41 @@ if __name__ == "__main__":
             print(f" Lista de variables recogidas: {tracks_updated}")
             list_available = check_availability(tracks_updated)
             print(f" Algoritmos que se puedan calcular: {list_available}")
+            
+            results = {}
+
+# Falten per importar: Driving Pressure, Dynamic Compliance, ROX Index, Temp Comparison, Systemic Vascular Resistance, 
+            # Cardiac Power Output, Effective Arterial Elastance
+            # O no els trobo jo o no estan al github (potser tenen noms raros i nose identificarlos)
+
+            for algoritme in list_available:
+                match algoritme:
+                    case 'Shock Index':
+                        results['Shock Index'] = ShockIndex(dataframes).values
+#                    case 'Driving Pressure':
+#                        results['Driving Pressure'] = DrivingPressure(dataframes).values
+#                    case 'Dynamic Compliance':
+#                        results['Dynamic Compliance'] = DynamicCompliance(dataframes).values
+#                    case 'ROX Index':
+#                        results['ROX Index'] = RoxIndex(dataframes).values
+#                    case 'Temp Comparison':
+#                        results['Temp Comparison'] = TempComparison(dataframes).values
+                    case 'Cardiac Output':
+                        results['Cardiac Output'] = CardiacOutput(dataframes).values
+#                    case 'Systemic Vascular Resistance':
+#                        results['Systemic Vascular Resistance'] = SystemicVascularResistance(dataframes).values
+#                    case 'Cardiac Power Output':
+#                        results['Cardiac Power Output'] = CardiacPowerOutput(dataframes).values
+#                    case 'Effective Arterial Elastance':
+#                        results['Effective Arterial Elastance'] = EffectiveArterialElastance(dataframes).values
+                    case 'Blood Pressure Variability':
+                        results['Blood Pressure Variability'] = BloodPressureVariability(dataframes).values
+                    case 'Heart Rate Variability':
+                        results['Heart Rate Variability'] = HeartRateVariability(dataframes).values
+                    case _:
+                        print(f"Advertencia: Algoritmo '{algoritme}' no encontrado")
+                        pass
+            print(f"Resultados de los algoritmos: {results}") # Estos resultados nose si tengo que passarlos al zarr o ya lo hacen los algoritmos (Se tendra que hablar)
+
     except KeyboardInterrupt:
         print("\n--- Monitoreo detenido por el usuario. ---")
