@@ -45,45 +45,44 @@ def find_latest_vital(recordings_dir):
 
 #####           PRUEBAS VF                      ########
 
-#recordings_dir = r"C:\Users\doi99\Desktop\PAE\records"
-#vital_path = find_latest_vital(recordings_dir)
-#vf = VitalFile(vital_path)
+recordings_dir = r"C:\Users\doi99\Desktop\PAE\records"
+vital_path = find_latest_vital(recordings_dir)
+vf = VitalFile(vital_path)
 
-#tracks = vf.get_track_names()
-#print("Track names: ", tracks)
-#possible_list = check_availability(tracks)
-#print("Los algoritmos disponibles son: ", possible_list )
+tracks = vf.get_track_names()
+print("Track names: ", tracks)
+possible_list = check_availability(tracks)
+print("Los algoritmos disponibles son: ", possible_list )
 
-#results = {}
-#for algorithm in possible_list:
-    '''
-    if algorithm == 'Shock Index':
-        results['Shock Index'] = ShockIndex(vf).values
-    elif algorithm == 'Driving Pressure':
-        results['Driving Pressure'] = DrivingPressure(vf).values
-    elif algorithm == 'Dynamic Compliance':
-        results['Dynamic Compliance'] = DynamicCompliance(vf).values
-    elif algorithm == 'ROX Index':
-        results['ROX Index'] = RoxIndex(vf).values
-    elif algorithm == 'Temp Comparison':
-        results['Temp Comparison'] = TempComparison(vf).values
-    elif algorithm == 'Cardiac Output':
-        results['Cardiac Output'] = CardiacOutput(vf).values
-    elif algorithm == 'Systemic Vascular Resistance':
-        results['Systemic Vascular Resistance'] = SystemicVascularResistance(vf).values
-    elif algorithm == 'Cardiac Power Output':
-        results['Cardiac Power Output'] = CardiacPowerOutput(vf).values
-    elif algorithm == 'Effective Arterial Elastance':
-        results['Effective Arterial Elastance'] = EffectiveArterialElastance(vf).values
-    '''
-   # if algorithm == 'Heart Rate Variability':
-   #     results['Heart Rate Variability'] = HeartRateVariability(vf)  #No tiene values definido aún
+# results = {}
+# for algorithm in possible_list:
+
+#     if algorithm == 'Shock Index':
+#         results['Shock Index'] = ShockIndex(vf).values
+#     elif algorithm == 'Driving Pressure':
+#         results['Driving Pressure'] = DrivingPressure(vf).values
+#     elif algorithm == 'Dynamic Compliance':
+#         results['Dynamic Compliance'] = DynamicCompliance(vf).values
+#     elif algorithm == 'ROX Index':
+#         results['ROX Index'] = RoxIndex(vf).values
+#     elif algorithm == 'Temp Comparison':
+#         results['Temp Comparison'] = TempComparison(vf).values
+#     elif algorithm == 'Cardiac Output':
+#         results['Cardiac Output'] = CardiacOutput(vf).values
+#     elif algorithm == 'Systemic Vascular Resistance':
+#         results['Systemic Vascular Resistance'] = SystemicVascularResistance(vf).values
+#     elif algorithm == 'Cardiac Power Output':
+#         results['Cardiac Power Output'] = CardiacPowerOutput(vf).values
+#     elif algorithm == 'Effective Arterial Elastance':
+#         results['Effective Arterial Elastance'] = EffectiveArterialElastance(vf).values
+#    if algorithm == 'Heart Rate Variability':
+#        results['Heart Rate Variability'] = HeartRateVariability(vf)  #No tiene values definido aún
     
-    #Pendiente añadir Variables autonomicas
-    #elif algorithm == 'ICP Model':
-    #    results['ICP Model'] = icp_model() #Pendiente ver como añadir el modelo de ICP
-    #elif algorithm == 'ABP Model':
-    #    results['ABP Model'] = abp_model() #Pendiente ver como añadir el modelo de ABP
+#     Pendiente añadir Variables autonomicas
+#     elif algorithm == 'ICP Model':
+#        results['ICP Model'] = icp_model() #Pendiente ver como añadir el modelo de ICP
+#     elif algorithm == 'ABP Model':
+#        results['ABP Model'] = abp_model() #Pendiente ver como añadir el modelo de ABP
 
     #Pendiente añadir otros algoritmos.
 
@@ -100,15 +99,7 @@ def find_latest_vital(recordings_dir):
 
 #####           PRUEBAS ZARR                      ########
 
-#zarr_Path = r"C:\Users\doi99\Desktop\PAE\records\test_alg.zarr"
-df = leer_senyal(
-    zarr_path=r"C:\Users\doi99\Desktop\PAE\records",
-    track="signals/Intellivue/ECG_HR"
-)
-print("porfavor:", df)
-
-
-#Función para crear un fucking zarr
+##########      Función para crear un fucking zarr
 
 #recordings_dir = r"C:\Users\doi99\Desktop\PAE\records"
 #vital_path = find_latest_vital(recordings_dir)
@@ -118,14 +109,25 @@ print("porfavor:", df)
 #zarr_path =r"C:\Users\doi99\Desktop\PAE\records"
 #vital_to_zarr( vital_path, zarr_path, tracks)
 
+###########     Función para crear un fucking zarr
 
 zarr_path=r"C:\Users\doi99\Desktop\PAE\records"
-tracks = ['Intellivue/ECG_HR', 'Intellivue/ABP_HR', 'Intellivue/HR', 'Intellivue/ABP_SYS', 'Intellivue/BP_SYS', 'Intellivue/NIBP_SYS']
-dataframe = leer_multiples_senyales(zarr_path,tracks)
-print("DF: ", dataframe)
-si = ShockIndex(dataframe).values
-print("DATAFRAME de SI:", si)
+# tracks_si = ['Intellivue/ECG_HR', 'Intellivue/ABP_HR', 'Intellivue/HR', 'Intellivue/ABP_SYS', 'Intellivue/BP_SYS', 'Intellivue/NIBP_SYS']
+# dataframe_si = leer_multiples_senyales(zarr_path,tracks_si)
+# # si = ShockIndex(dataframe_si).values
+# print("DATAFRAME de SI:", ShockIndex(dataframe_si).values)
 
+# tracks_dp = ['Intellivue/PPLAT_CMH2O', 'Intellivue/PEEP_CMH2O']
+# dataframe_dp = leer_multiples_senyales(zarr_path,tracks_dp)
+# print("DATAFRAME de DP:", DrivingPressure(dataframe_dp).values)
+
+# tracks_dc = ['Intellivue/TV_EXP', 'Intellivue/PIP_CMH2O', 'Intellivue/PEEP_CMH2O']
+# dataframe_dc = leer_multiples_senyales(zarr_path,tracks_dc)
+# print("DATAFRAME de DC:", DynamicCompliance(dataframe_dc).values)
+
+tracks_hrv = ['Intellivue/ECG_I', 'Intellivue/ECG_II', 'Intellivue/ECG_III', 'Intellivue/ECG_V']
+dataframe_hrv = leer_multiples_senyales(zarr_path,tracks_hrv)
+print("AQUI VA EL HRV:", HeartRateVariability(dataframe_hrv))
 
 #recordings_dir = r"C:\Users\doi99\Desktop\PAE\records"
 #vital_path = find_latest_vital(recordings_dir)
