@@ -2,7 +2,7 @@ import vitaldb
 from vitaldb import VitalFile
 import os
 import zarr
-from utils_zarr import leer_multiples_senyales, leer_senyal
+from utils_zarr import leer_multiples_senyales, leer_senyal, vital_to_zarr
 
 from check_avalability import check_availability
 from shock_index import ShockIndex
@@ -100,16 +100,32 @@ def find_latest_vital(recordings_dir):
 
 #####           PRUEBAS ZARR                      ########
 
-zarr_path = os.path.join(os.path.dirname(os.path.dirname(__file__)),os.path.join("results", "test_alg.zarr 13.41.39") )
-tracks = ['Intellivue/ECG_HR', 'Intellivue/ABP_HR', 'Intellivue/HR', 'Intellivue/VOL_BLD_STROKE']
+#zarr_Path = r"C:\Users\doi99\Desktop\PAE\records\test_alg.zarr"
+df = leer_senyal(
+    zarr_path=r"C:\Users\doi99\Desktop\PAE\records",
+    track="signals/Intellivue/ECG_HR"
+)
+print("porfavor:", df)
+
+
+#Función para crear un fucking zarr
+
+#recordings_dir = r"C:\Users\doi99\Desktop\PAE\records"
+#vital_path = find_latest_vital(recordings_dir)
+#vf = VitalFile(vital_path)
+#tracks = vf.get_track_names()
+
+#zarr_path =r"C:\Users\doi99\Desktop\PAE\records"
+#vital_to_zarr( vital_path, zarr_path, tracks)
+
+
+zarr_path=r"C:\Users\doi99\Desktop\PAE\records"
+tracks = ['Intellivue/ECG_HR', 'Intellivue/ABP_HR', 'Intellivue/HR', 'Intellivue/ABP_SYS', 'Intellivue/BP_SYS', 'Intellivue/NIBP_SYS']
 dataframe = leer_multiples_senyales(zarr_path,tracks)
 print("DF: ", dataframe)
-print("DATAFRAME de CO:", CardiacOutput(dataframe))
+si = ShockIndex(dataframe).values
+print("DATAFRAME de SI:", si)
 
-root= zarr.open_array(r"C:\Users\doi99\Desktop\PAE\records\test_alg.zarr 13.41.39", mode="r")
-hr = root[r"\signals\Intellivue\ECG_HR\values"][:]
-print("ECG_HR:", hr)
-print("ECG_HR:", leer_senyal(zarr_path,'ECG_HR'))
 
 #recordings_dir = r"C:\Users\doi99\Desktop\PAE\records"
 #vital_path = find_latest_vital(recordings_dir)
