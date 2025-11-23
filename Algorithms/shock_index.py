@@ -45,7 +45,6 @@ class ShockIndex:
 
     def _from_df(self, list_dataframe: list[pd.DataFrame]):
         #Se recibe una lista de dataframes
-
         #Se sacan los indices, que son los nombres de las variables
         available_tracks = list_dataframe.keys()
 
@@ -62,12 +61,8 @@ class ShockIndex:
         hr = list_dataframe[hr_track] 
         sys = list_dataframe[sys_track]
 
-        # Deletes the nan values
-        hr_clean = hr[hr["values"].notna()]     #(original: hr_track en vez de values)
-        sys_clean = sys[sys["values"].notna()]
-
         # Creates a new dataframe with timestamp | hr_value | sys_value where both values come from the same timestamp
-        pre_si= hr_clean.merge(sys_clean, on="t_abs_ms")
+        pre_si= hr.merge(sys, on="t_abs_ms")
         print(pre_si)
 
         #Creates the SI dataframe: Timestamp | SI_value
