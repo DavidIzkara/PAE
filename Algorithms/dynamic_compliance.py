@@ -1,9 +1,16 @@
 import vitaldb
+import pandas as pd
 
 class DynamicCompliance: 
         
-    def __init__(self, vf: vitaldb.VitalFile):
+    def __init__(self, data):
     
+        if isinstance(data, vitaldb.VitalFile):
+            self._from_vf(data)
+        else:
+            self._from_df(data)
+
+    def _from_vf(self, vf):
         tv_track='Intellivue/TV_EXP'
         pip_track='Intellivue/PIP_CMH2O'
         peep_track='Intellivue/PEEP_CMH2O'
@@ -23,6 +30,21 @@ class DynamicCompliance:
 
         #Creates the DC dataframe: Timestamp | DC_value
         self.values = {'Timestamp': pre_dc["Time"], 'DC': (pre_dc[tv_track] / (pre_dc[pip_track] - pre_dc[peep_track]))}
+
+
+    def _from_df(self, list_dataframe: list[pd.DataFrame]):
+        #Se recibe una lista de dataframes
+        
+        tv = list_dataframe['Intellivue/TV_EXP'] 
+        pip = list_dataframe['Intellivue/PIP_CMH2O']
+        peep = list_dataframe['Intellivue/PEEP_CMH2O']
+
+        # Creates a new dataframe with timestamp | tv_value | pip_value | peep_value where both values come from the same absolute timestamp
+        pre_dc = tv.merge(pip, on="t_abs_ms").merge(peep, on="t_abs_ms")
+        print(pre_dc)
+
+        #Creates the DP dataframe: Timestamp | DC_value
+        self.values = pd.DataFrame({'Timestamp': pre_dc["t_abs_ms"], 'DC': pre_dc["values_x"] / (pre_dc["values_y"] - pre_dc["values"])}) 
 
 #Does not require any special handling of missing data as this class is only used when we have the data.
 #Does not need to handle multiple possible track names as these are fixed.
