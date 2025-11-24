@@ -29,6 +29,66 @@ FORMATO_TIMESTAMP = "%Y-%m-%d %H:%M:%S"
 
 # Coses Meves
 
+ALGORITMOS_VISIBLES = {
+    'Shock Index'
+    'Driving Pressure'
+    'Dynamic Compliance'
+    'ROX Index'
+    'Temp Comparison'
+    'Cardiac Output'
+    'Systemic Vascular Resistance'
+    'Cardiac Power Output'
+    'Effective Arterial Elastance'
+}
+
+def escribir_prediccion(
+    zarr_path: str,
+    pred_name: str, 
+    timestamps_ms: np.ndarray,
+    values: np.ndarray,
+    modelo_info: Optional[Dict] = None
+) -> None:
+    """
+    Escribe predicciones en Zarr bajo la estructura:
+    ROOT/predictions/MODEL_NAME/PRED_NAME/time_ms
+    ROOT/predictions/MODEL_NAME/PRED_NAME/value
+    """
+    if timestamps_ms.size != values.size:
+        raise ValueError(f"Timestamps y values deben tener el mismo tamaño")
+    
+    root = open_root(zarr_path)
+    
+    # 1. Obtener el nombre del algoritmo/modelo (Ejemplo: 'Shock Index')
+    # Se añade validación y un nombre por defecto.
+    model_name = modelo_info.get("model") if modelo_info and isinstance(modelo_info, dict) and "model" in modelo_info else "Unknown_Algorithm"
+    
+    # 2. Construir la ruta COMPLETA deseada
+    # Ejemplo: "predictions/Shock Index/SI"
+    full_group_path = f"predictions/{model_name}/{pred_name}"
+    
+    # 3. Crear el grupo completo de forma segura
+    # Asumimos que safe_group puede crear rutas anidadas (predictions, Shock Index, SI)
+    # 'grp' es el grupo Zarr final, que se llamará 'SI'.
+    grp = safe_group(root, full_group_path)
+    
+    # 4. Crear o abrir los datasets 'time_ms' y 'value' DENTRO del grupo 'grp' ('SI')
+    # Usamos get_or_create_1d directamente para evitar estructuras de carpetas anidadas no deseadas.
+    # (Asumo que get_or_create_1d y append_1d están disponibles en utils_zarr.py)
+    time_arr = get_or_create_1d(grp, "time_ms", dtype="i8", fill=-1)
+    data_arr = get_or_create_1d(grp, "value", dtype=values.dtype, fill=np.nan)
+    
+    # 5. Adjuntar los datos
+    append_1d(time_arr, timestamps_ms.astype(np.int64))
+    append_1d(data_arr, values.astype(np.float32))
+    
+    # 6. Metadata del modelo: se añade al grupo 'SI' (grp)
+    if modelo_info:
+        for key, val in modelo_info.items():
+            grp.attrs[f"model_{key}"] = val
+        grp.attrs["prediction_created"] = time.strftime("%Y-%m-%d %H:%M:%S")
+    
+    print(f"✅ Predicción '{pred_name}' guardada en '{full_group_path}': {timestamps_ms.size} samples")
+
 def leer_zattrs_de_grupo(zarr_path: str, grupo_path: str) -> Dict[str, Any]:
     """
     Extrae y retorna el contenido del archivo .zattrs (metadatos)
@@ -562,53 +622,6 @@ def escribir_senyal(
             grp.attrs[key] = val
     
     print(f"✅ Escritos {timestamps_ms.size} samples en signals/{track_path}")
-
-
-def escribir_prediccion(
-    zarr_path: str,
-    pred_name: str,
-    timestamps_ms: np.ndarray,
-    values: np.ndarray,
-    modelo_info: Optional[Dict] = None
-) -> None:
-    """
-    Escribe predicciones en pred/ usando las funciones existentes.
-    
-    Args:
-        zarr_path: Ruta al .zarr
-        pred_name: Nombre de la predicción
-        timestamps_ms: Timestamps en milisegundos
-        values: Valores predichos
-        modelo_info: Info del modelo
-    
-    Example:
-        >>> t_ms = np.arange(0, 3600000, 1000)  # 1h, 1 pred/s
-        >>> preds = np.random.uniform(12, 20, len(t_ms))
-        >>> escribir_prediccion("data.zarr", "rr_pred", t_ms, preds,
-        ...                     modelo_info={"model": "LSTM", "version": "1.0"})
-    """
-    if timestamps_ms.size != values.size:
-        raise ValueError(f"Timestamps y values deben tener el mismo tamaño")
-    
-    root = open_root(zarr_path)
-    pred_root = safe_group(root, "pred")
-    
-    # Usar get_or_create_signal_pair
-    time_arr, data_arr = get_or_create_signal_pair(pred_root, pred_name)
-    
-    # Usar append_1d
-    append_1d(time_arr, timestamps_ms.astype(np.int64))
-    append_1d(data_arr, values.astype(np.float32))
-    
-    # Metadata del modelo
-    if modelo_info:
-        grp = safe_group(pred_root, pred_name.rsplit("/", 1)[0] if "/" in pred_name else "")
-        for key, val in modelo_info.items():
-            grp.attrs[f"model_{key}"] = val
-        grp.attrs["prediction_created"] = time.strftime("%Y-%m-%d %H:%M:%S")
-    
-    print(f"✅ Predicción '{pred_name}' guardada: {timestamps_ms.size} samples")
-
 
 def obtener_info_zarr(zarr_path: str) -> Dict:
     """
