@@ -7,6 +7,7 @@ OUTPUT_DIR = r"C:\Users\UX636EU\OneDrive - EY\Desktop\VitalParser-main\VitalPars
 
 #os.makedirs(OUTPUT_DIR, exist_ok=True) # En caso de que el directorio no exista, se crea
 
+
 WAVE_STANDARD_RATE = 100.0 # Frecuencia de muestreo estándar asumida para tracks no definidos (en Hz)
 
 # Si un track está aquí, usa su valor. Si no está, usa WAVE_STANDARD_RATE (100.0 Hz).
