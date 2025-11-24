@@ -11,10 +11,10 @@ BASE_DIR = r"C:\Users\UX636EU\OneDrive - EY\Desktop\recordings"
 POLLING_INTERVAL = 1 
 
 # -------------------------------------------------------------------------------------------
-PRUEVAS = False 
+PRUEVAS = True 
 
-DIRECTORIO_PRUEVA = r"C:\Users\UX636EU\OneDrive - EY\Desktop\VitalParser-main\VitalParser-main\records\10\250629" 
-ARCHIVO_VITAL = r"tvpir4b4i_250629_225235.vital" 
+DIRECTORIO_PRUEVA = r"C:\Users\UX636EU\OneDrive - EY\Desktop\VitalParser-main\VitalParser-main\records\4\250618" 
+ARCHIVO_VITAL = r"nd7wx5v9h_250618_133910.vital" 
 
 SIM_MIN_SECS = 20
 SIM_MAX_SECS = 30
@@ -291,15 +291,11 @@ def main_loop():
     last_size = -1
     last_read_counts = {} # <--- INICIALITZAT EL DICCIONARI
 
-    if PRUEVAS:
-        total_sim_cycles = 10 
-        current_sim_cycle = 0
-
     try:
         while True:
             if PRUEVAS:
                 simulated_growth_seconds = random.randint(SIM_MIN_SECS, SIM_MAX_SECS)
-                print(f"\n--- SIMULACIÓN ---: Leyendo bloque de {simulated_growth_seconds} segundos (Ciclo {current_sim_cycle+1}/{total_sim_cycles}).")
+                print(f"\n--- SIMULACIÓN ---: Leyendo bloque de {simulated_growth_seconds} segundos.")
             else:
                 simulated_growth_seconds = 0
 
@@ -316,12 +312,6 @@ def main_loop():
             if PRUEVAS:
                 if finished:
                     print("\n--- SIMULACIÓN FINALIZADA: Archivo no disponible o terminado. ---")
-                    break
-                
-                current_sim_cycle += 1
-
-                if current_sim_cycle >= total_sim_cycles:
-                    print(f"\n--- SIMULACIÓN FINALIZADA: {total_sim_cycles} ciclos completados. ---")
                     break
             
             time.sleep(POLLING_INTERVAL)
