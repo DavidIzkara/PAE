@@ -1,7 +1,7 @@
 import time
-#from Streaming import monitorizar_actualizacion_recurso
-#from Algorithms import ejecutar_algoritmos
-from Front import Interface
+from Streaming import monitorizar_actualizacion_recurso
+from Algorithms import ejecutar_algoritmos
+from Front import actualizar_interfaz
 
 def seleccionar_modo_gui():
     try:
