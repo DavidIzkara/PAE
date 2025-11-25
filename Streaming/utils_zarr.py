@@ -1,3 +1,4 @@
+# zarr_utils.py
 """
 Utility functions for reading, writing, and managing physiological data
 stored in Zarr format.
@@ -8,12 +9,11 @@ Compatible with Zarr v2 (appendable 1D datasets, Blosc compression).
 import os
 import time
 import numpy as np
-from pyparsing import Union
-import zarr
 import pandas as pd
+import zarr
 from numcodecs import Blosc
 from datetime import datetime, timezone, timedelta
-from typing import Optional, Dict, List, Tuple
+from typing import Dict, List, Optional, Tuple, Any, Union
 
 # ---------------------------------------------------------------------
 # 🔧 Configuració
@@ -23,7 +23,127 @@ from typing import Optional, Dict, List, Tuple
 _DEFAULT_COMPRESSOR = Blosc(cname="zstd", clevel=5, shuffle=Blosc.SHUFFLE)
 _DEFAULT_CHUNK = (60_000,)  # ~5 min at 200 Hz
 STORE_PATH = os.path.join("results", "BOX01_20251024.zarr")
+FRAME_SIGNAL = "signals/Intellivue/"
+FRAME_SIGNAL_DEMO = "signals/Demo/"
 FORMATO_TIMESTAMP = "%Y-%m-%d %H:%M:%S"
+
+# Coses Meves
+
+ALGORITMOS_VISIBLES = {
+    'Shock Index'
+    'Driving Pressure'
+    'Dynamic Compliance'
+    'ROX Index'
+    'Temp Comparison'
+    'Cardiac Output'
+    'Systemic Vascular Resistance'
+    'Cardiac Power Output'
+    'Effective Arterial Elastance'
+}
+
+def escribir_prediccion(
+    zarr_path: str,
+    pred_name: str, 
+    timestamps_ms: np.ndarray,
+    values: np.ndarray,
+    modelo_info: Optional[Dict] = None
+) -> None:
+    """
+    Escribe predicciones en Zarr bajo la estructura:
+    ROOT/predictions/MODEL_NAME/PRED_NAME/time_ms
+    ROOT/predictions/MODEL_NAME/PRED_NAME/value
+    """
+    if timestamps_ms.size != values.size:
+        raise ValueError(f"Timestamps y values deben tener el mismo tamaño")
+    
+    root = open_root(zarr_path)
+    
+    # 1. Obtener el nombre del algoritmo/modelo (Ejemplo: 'Shock Index')
+    # Se añade validación y un nombre por defecto.
+    model_name = modelo_info.get("model") if modelo_info and isinstance(modelo_info, dict) and "model" in modelo_info else "Unknown_Algorithm"
+    
+    # 2. Construir la ruta COMPLETA deseada
+    # Ejemplo: "predictions/Shock Index/SI"
+    full_group_path = f"predictions/{model_name}/{pred_name}"
+    
+    # 3. Crear el grupo completo de forma segura
+    # Asumimos que safe_group puede crear rutas anidadas (predictions, Shock Index, SI)
+    # 'grp' es el grupo Zarr final, que se llamará 'SI'.
+    grp = safe_group(root, full_group_path)
+    
+    # 4. Crear o abrir los datasets 'time_ms' y 'value' DENTRO del grupo 'grp' ('SI')
+    # Usamos get_or_create_1d directamente para evitar estructuras de carpetas anidadas no deseadas.
+    # (Asumo que get_or_create_1d y append_1d están disponibles en utils_zarr.py)
+    time_arr = get_or_create_1d(grp, "time_ms", dtype="i8", fill=-1)
+    data_arr = get_or_create_1d(grp, "value", dtype=values.dtype, fill=np.nan)
+    
+    # 5. Adjuntar los datos
+    append_1d(time_arr, timestamps_ms.astype(np.int64))
+    append_1d(data_arr, values.astype(np.float32))
+    
+    # 6. Metadata del modelo: se añade al grupo 'SI' (grp)
+    if modelo_info:
+        for key, val in modelo_info.items():
+            grp.attrs[f"model_{key}"] = val
+        grp.attrs["prediction_created"] = time.strftime("%Y-%m-%d %H:%M:%S")
+    
+    print(f"✅ Predicción '{pred_name}' guardada en '{full_group_path}': {timestamps_ms.size} samples")
+
+def leer_zattrs_de_grupo(zarr_path: str, grupo_path: str) -> Dict[str, Any]:
+    """
+    Extrae y retorna el contenido del archivo .zattrs (metadatos)
+    de un grupo específico dentro del contenedor Zarr.
+
+    Args:
+        zarr_path: Ruta al archivo Zarr (ej: "session_data.zarr")
+        grupo_path: Path interno del grupo (ej: "signals/Intellivue/ECG_HR")
+
+    Returns:
+        Un diccionario (dict) con los metadatos. Retorna {} si el grupo 
+        no existe o si no hay metadatos.
+    """
+    
+    # Abrir el contenedor Zarr para obtener el grupo raíz
+    try:
+        root = open_root(zarr_path)
+    except Exception as e:
+        # En un entorno real, lanzaríamos un error o devolveríamos un código de fallo.
+        print(f"[ERROR] No se pudo abrir el archivo Zarr '{zarr_path}': {e}")
+        return None
+
+    # Navegar hasta el grupo específico
+    target_group = get_group_if_exists(root, grupo_path)
+
+    if target_group is None:
+        print(f"[WARN] El grupo '{grupo_path}' no fue encontrado.")
+        return None
+
+    # Acceder y devolver los metadatos (.zattrs)
+    return dict(target_group.attrs)
+
+def get_track_names_simplified(zarr_path: str) -> List[str]:
+    """
+    Obtiene los paths de las pistas disponibles y retorna solo el nombre de la señal, (ej: 'ECG_HR')
+    extrayendo el penúltimo directorio del path completo.
+
+    Args:
+        zarr_path: Ruta al archivo Zarr (ej: "results/session_data.zarr")
+
+    Returns:
+        Una lista de strings con los nombres simplificados de las pistas disponibles.
+    """
+    
+    signal_paths, preds_paths = list_available_tracks(zarr_path)
+
+    all_tracks_paths = signal_paths + preds_paths
+
+    final_names = []
+    for track_path in all_tracks_paths:
+        parts = track_path.split('/')
+        if len(parts) >= 2:
+            track_name = parts[-1]
+            final_names.append(track_name)
+    return final_names
 
 # ---------------------------------------------------------------------
 # 🧱 BASIC HELPERS
@@ -42,41 +162,44 @@ def epoch1700_to_datetime(ts_seconds: float) -> datetime:
     epoch_1700 = datetime(1700, 1, 1, tzinfo=timezone.utc)
     return epoch_1700 + timedelta(seconds=float(ts_seconds))
 
-def normalize_signal_path(track: str) -> str:
+def string_to_epoch1700(date_str: str, formato: str = FORMATO_TIMESTAMP) -> Union[float, None]:
     """
-    Normalitza un track perquè tingui un path complet vàlid.
-    Regles:
-      - Si comença per 'signals/' o 'pred/' → es deixa tal qual.
-      - Si comença per 'Intellivue/' → afegeix 'signals/' davant.
-      - Si no té prefix → assumeix 'signals/Intellivue/<track>'.
+    Convierte una cadena de texto de fecha/hora (asumiendo que es UTC) 
+    a segundos transcurridos desde 1700-01-01 UTC.
     
-    Exemples:
-        ECG_HR               → signals/Intellivue/ECG_HR
-        Intellivue/ECG_HR    → signals/Intellivue/ECG_HR
-        signals/Intellivue/ECG_HR → idem
-        pred/CO/beatwise     → idem (no es toca)
+    Args:
+        date_str: La cadena de fecha/hora (ej: '2025-11-20 13:03:00').
+        formato: El formato de la cadena (por defecto: '%Y-%m-%d %H:%M:%S').
+        
+    Returns:
+        Número de segundos (float) o None si falla o la fecha es anterior a 1700.
     """
-    if track.startswith("signals/") or track.startswith("algorithms/"):
-        return track
-    
-    # Cas 2: comença per "Intellivue/"
-    if track.startswith("Intellivue/"):
-        return f"signals/{track}"
-    
-    # Cas 3: només nom curt
-    return f"signals/Intellivue/{track}"
+    try:
+        dt_naive = datetime.strptime(date_str, formato)
+        
+        dt_utc = dt_naive.replace(tzinfo=timezone.utc)
+        
+    except ValueError as e:
+        print(f"[ERROR] Formato de fecha incorrecto: {e}")
+        return None
 
-def normalize_pred_path(pred_name: str) -> str:
+    epoch_1700 = datetime(1700, 1, 1, tzinfo=timezone.utc)
+
+    if dt_utc < epoch_1700:
+        return None
+        
+    time_difference: timedelta = dt_utc - epoch_1700
+
+    return time_difference.total_seconds()
+
+def normalize_signal_path(signal: str) -> str:
     """
-    Normalitza el path d'una predicció.
-    Regles:
-      - Si ja comença per 'algorithms/' → es deixa igual.
-      - Si només és un nom (p. ex. 'CO') → es converteix a 'algorithms/CO'.
-      - No obliga vendor ni subcarpetes.
+    Normalitza un path perquè sempre tingui prefix 'signals/'.
+    Si l'usuari ja el passa així, no es toca.
     """
-    if pred_name.startswith("algorithms/"):
-        return pred_name
-    return f"algorithms/{pred_name}"
+    if signal.startswith("signals/"):
+        return signal  # ✅ CORRECCIÓ: era 'path'
+    return f"signals/{signal}"
 
 
 # ---------------------------------------------------------------------
@@ -85,7 +208,6 @@ def normalize_pred_path(pred_name: str) -> str:
 # ---------------------------------------------------------------------
 def safe_group(root: zarr.hierarchy.Group, path: str) -> zarr.hierarchy.Group:
     """Crea (si cal) i retorna el subgrup dins root."""
-
     parts = [p for p in path.split("/") if p]
     g = root
     for p in parts:
@@ -97,7 +219,6 @@ def safe_group(root: zarr.hierarchy.Group, path: str) -> zarr.hierarchy.Group:
 # root.require_group(part del path) es una funcio que equival al
 # mkdir de linux. Si existeix el retorna, si no existeix el crea.
 # Millor per escriptura
-
 def get_group_if_exists(root: zarr.hierarchy.Group, path: str):
     """Return a subgroup if it exists, otherwise None."""
     parts = [p for p in path.split("/") if p]
@@ -132,6 +253,7 @@ def get_or_create_1d(
         compressor=compressor,
         fill_value=fill,
         overwrite=False,
+        maxshape=(None,),
     )
 # group -> És un subgrup intern dins d'aquesta jerarquia. 
 # És simplement un directori dins el Zarr.
@@ -161,37 +283,29 @@ def append_1d(arr: zarr.core.Array, data: np.ndarray) -> None:
 # arr.shape -> Obtén la mida actual de l'array.
 # Recalcula la abans d'afegir les noves dades en l'array.
 # Per escritura
-
 def get_or_create_signal_pair(
     parent_group: zarr.hierarchy.Group,
-    signal: str,
+    signal_path: str,
     dtype="f4",
 ) -> tuple[zarr.core.Array, zarr.core.Array]:
     """
     Create or retrieve the pair (time_ms, values) for a signal.
     Example: "Intellivue/PLETH" → "Intellivue/PLETH_time_ms", "Intellivue/PLETH"
     """
-    full_path = normalize_signal_path(signal)
-    clean = full_path.replace("signals/", "")
-    parts = clean.split("/")
+    parts = signal_path.split("/")
     *grp_parts, var_name = parts
-
     g = parent_group
     for p in grp_parts:
         g = g.require_group(p)
-    
-    sig_group = g.require_group(var_name)
 
-    time_arr = get_or_create_1d(sig_group, "time_ms", dtype="i8", fill=-1)
-    data_arr = get_or_create_1d(sig_group, "value", dtype=dtype, fill=np.nan)
+    time_arr = get_or_create_1d(g, f"{var_name}_time_ms", dtype="i8", fill=-1)
+    data_arr = get_or_create_1d(g, f"{var_name}", dtype=dtype, fill=np.nan)
     return time_arr, data_arr
 # parent_group -> El grup on volem crear o obtenir el par de senyals.
 # signal_path -> El camí complet del senyal dins la jerarquia.
 # dtype -> El tipus de dades per als valors del senyal.
 # Retorna un tuple amb dos arrays Zarr: un per als temps en ms i un altre per als valors del senyal.
 # Tant per iniciar una escritura o per llegir per algoritmes.
-
-
 # ---------------------------------------------------------------------
 # 🩺 READING / NAVIGATION
 # ---------------------------------------------------------------------
@@ -199,7 +313,7 @@ def load_track(root: zarr.hierarchy.Group, signal: str):
     """Return (t_abs_ms, t_rel_ms, values) for a signal."""
     track_path = normalize_signal_path(signal)
     t_key = f"{track_path}/time_ms"
-    v_key = f"{track_path}/value"  
+    v_key = f"{track_path}/value"  # ✅ CORRECCIÓ: era 'vaules'
     
     if t_key not in root or v_key not in root:
         return None, None, None
@@ -212,15 +326,7 @@ def load_track(root: zarr.hierarchy.Group, signal: str):
     t0 = int(t_abs_ms[0])
     t_rel_ms = (t_abs_ms - t0).astype(np.int64)
     return t_abs_ms, t_rel_ms, vals
-# root -> Grup arrel del .zarr on es troba el senyal.
-# track_path -> Camí complet del senyal dins la jerarquia.
-#Retorna una tupla amb tres arrays.
-# t_abs_ms -> Temps absoluts en mil·lisegons.
-# t_rel_ms -> Temps relatius en mil·lisegons (des del primer temps).
-# vals -> Valors del senyal.
-# Llença un KeyError si falta el senyal o el temps associat.
-# root[t_key][:] -> Accedeix a l'array Zarr i 
-# obté totes les dades com un array NumPy.
+
 
 def slice_by_seconds(t_rel_ms, vals, start_s, end_s):
     """Return a time-windowed segment of signal data."""
@@ -237,104 +343,50 @@ def slice_by_seconds(t_rel_ms, vals, start_s, end_s):
 # Retarna trams talla dels arrays de temps relatius
 # i valors corresponents dins de la finestra especificada.
 
+
 def walk_arrays(node, base=""):
     """Recursively list all arrays (not groups) in the hierarchy."""
     out = []
-    
-    # Debug: veure què hi ha dins del node
-    print(f"[DEBUG walk_arrays] Explorant node amb base='{base}'")
-    print(f"[DEBUG walk_arrays] Items en node: {list(node.keys()) if hasattr(node, 'keys') else 'NO KEYS'}")
-    
     for name, child in node.items():
         path = f"{base}/{name}" if base else name
-        print(f"[DEBUG walk_arrays] Processant: {path}, type: {type(child)}")
-        
-        # Comprovar si és un array (té shape i dtype)
         if hasattr(child, "shape") and hasattr(child, "dtype"):
-            print(f"[DEBUG walk_arrays] ✓ És un array: {path}, shape={child.shape}")
             out.append(path)
-        elif isinstance(child, zarr.hierarchy.Group):
-            print(f"[DEBUG walk_arrays] → És un grup, entrant recursivament...")
-            out.extend(walk_arrays(child, base=path))
         else:
-            print(f"[DEBUG walk_arrays] ? Tipus desconegut, saltant...")
-    
-    print(f"[DEBUG walk_arrays] Arrays trobats amb base='{base}': {out}")
+            out.extend(walk_arrays(child, base=path))
     return out
+#És un recorregut recursiu per tota la jerarquia Zarr
+#Retorna tots els arrays, però no els grups
 
 
 def list_available_tracks(zarr_path):
     """Return lists of available signal and prediction tracks."""
-    print(f"\n[DEBUG] Obrint zarr: {zarr_path}")
     root = open_root(zarr_path)
-    
-    print(f"[DEBUG] Contingut del root: {list(root.keys())}")
-    print(f"[DEBUG] Type del root: {type(root)}")
 
     signals = []
     preds = []
     
     if "signals" in root:
-        print(f"\n[DEBUG] Explorant 'signals'...")
-        print(f"[DEBUG] Type de root['signals']: {type(root['signals'])}")
-        
-        arrs = walk_arrays(root["signals"])
-        print(f"[DEBUG] Arrays trobats a signals: {arrs}")
-        
-        for p in arrs:
-            if p.endswith("/value"):
-                track_path = p.replace("/value", "")
-                signals.append(f"signals/{track_path}")
-        
-        print(f"[DEBUG] Senyals finals: {signals}")
+        arrs = walk_arrays(root["signals"], base="signals")
+        signals = [
+            p.replace("/value", "")  # ✅ CORRECCIÓ: era '/values'
+            for p in arrs
+            if p.endswith("/value")
+        ]
 
-    if "algorithms" in root:
-        print(f"\n[DEBUG] Explorant 'algorithms'...")
-        arrs = walk_arrays(root["algorithms"])
-        print(f"[DEBUG] Arrays trobats a algorithms: {arrs}")
-        
-        for p in arrs:
-            if p.endswith("/value"):
-                track_path = p.replace("/value", "")
-                preds.append(f"algorithms/{track_path}")
-        
-        print(f"[DEBUG] Prediccions finals: {preds}")
-    
+    if "pred" in root:
+        arrs = walk_arrays(root["pred"], base="pred")
+        preds = [
+            p.replace("/value", "")  # ✅ CORRECCIÓ: era '/values'
+            for p in arrs
+            if p.endswith("/value")
+        ]
     return signals, preds
-
-
-def get_track_names_simplified(zarr_path: str) -> List[str]:
-    """
-    Obtiene los paths de las pistas disponibles y retorna solo el nombre de la señal, (ej: 'ECG_HR')
-    extrayendo el penúltimo directorio del path completo.
-
-    Args:
-        zarr_path: Ruta al archivo Zarr (ej: "results/session_data.zarr")
-
-    Returns:
-        Una lista de strings con los nombres simplificados de las pistas disponibles.
-    """
-    # CORRECCIÓ: passar zarr_path en lloc de root
-    signal_paths, preds_paths = list_available_tracks(zarr_path)
-
-    all_tracks_paths = signal_paths + preds_paths
-
-    final_names = []
-    for track_path in all_tracks_paths:
-        parts = track_path.split('/')
-        if len(parts) >= 2:
-            track_name = parts[-2]
-            final_names.append(track_name)
-    
-    return final_names
-
 
 def track_exists(signals, track_name: str) -> bool:
     if "/" not in track_name:
         return False
     vendor, track = track_name.split("/", 1)
     return vendor in signals and track in signals[vendor]
-
 
 # ---------------------------------------------------------------------
 # 🧬 VITAL → ZARR CONVERSION
@@ -355,6 +407,7 @@ def vital_to_zarr(
 # tracks -> Llista de senyals a extreure del .vital.
 # window_secs -> Finestra temporal opcional per filtrar dades.
 # chunk_len -> Mida dels chunks per als arrays Zarr.
+
     from vitaldb import VitalFile
 # Primer fem una validació bàsica del fitxer .vital.
     if not os.path.exists(vital_file):
@@ -376,7 +429,6 @@ def vital_to_zarr(
     signals_root = safe_group(root, "signals")
     total_added = 0
     written_tracks = 0
-
 # Bucle per aconseguir cada senyal amb els 
 # seus respectius timestamps i valors
     for track in tracks:
@@ -390,6 +442,7 @@ def vital_to_zarr(
 
         ts = data[:, 0].astype(np.float64)
         vals = data[:, 1].astype(np.float64)
+
 
         if ts.size == 0 or np.all(np.isnan(vals)):
             continue
@@ -425,6 +478,7 @@ def vital_to_zarr(
 
     print(f"✅ Updated {zarr_path}: {written_tracks} tracks, {total_added} samples added.")
 
+#
 # ---------------------------------------------------------------------
 # 🧠 QUICK SUMMARY
 # ---------------------------------------------------------------------
@@ -457,14 +511,14 @@ def leer_senyal(
     track: str,
     start_s: Optional[float] = None,
     end_s: Optional[float] = None
-) -> Optional[pd.DataFrame]:  # Type hint
+) -> Optional[pd.DataFrame]:  # ✅ CORRECCIÓ: Type hint
     """
     Función de alto nivel para leer un señal fácilmente.
     """
     root = open_root(zarr_path)
     t_abs_ms, t_rel_ms, values = load_track(root, track)
 
-    # Comprovar si és None
+    # ✅ CORRECCIÓ: Comprovar si és None
     if t_abs_ms is None:
         return None
     
@@ -476,13 +530,14 @@ def leer_senyal(
             end_s = t_rel_ms[-1] / 1000.0 if t_rel_ms.size > 0 else 0
         
         t_rel_ms, values = slice_by_seconds(t_rel_ms, values, start_s, end_s)
-        
+
         # Recalcular t_abs_ms para la ventana
         if t_rel_ms.size > 0:
             start_idx = np.searchsorted(t_abs_ms, t_abs_ms[0] + int(start_s * 1000))
             end_idx = np.searchsorted(t_abs_ms, t_abs_ms[0] + int(end_s * 1000))
             t_abs_ms = t_abs_ms[start_idx:end_idx]
     
+
     df = pd.DataFrame({
         't_abs_ms': t_abs_ms,
         't_rel_ms': t_rel_ms,
@@ -491,106 +546,70 @@ def leer_senyal(
 
     return df
 
-
 def leer_multiples_senyales(
     zarr_path: str,
-    tracks: List[str],
+    track_paths: List[str],
     start_s: Optional[float] = None,
     end_s: Optional[float] = None
-) -> pd.DataFrame[str, pd.DataFrame]:
-    """Lee múltiples señales usando leer_senyal() repetidamente."""
+) -> Dict[str, Dict[str, np.ndarray]]:
+    """
+    Lee múltiples señales usando leer_senyal() repetidamente.
+    
+    Args:
+        zarr_path: Ruta al .zarr
+        track_paths: Lista de paths de señales
+        start_s: Inicio ventana temporal (opcional)
+        end_s: Fin ventana temporal (opcional)
+    
+    Returns:
+        dict donde key=track_path, value=resultado de leer_senyal()
+    
+    Example:
+        >>> tracks = ["signals/Intellivue/PLETH", "signals/Intellivue/HR"]
+        >>> datos = leer_multiples_senyales("data.zarr", tracks, start_s=0, end_s=60)
+        >>> pleth = datos["signals/Intellivue/PLETH"]["values"]
+    """
     resultado = {}
     
-    for track in tracks:
+    for track in track_paths:
         try:
-            data = leer_senyal(zarr_path, track, start_s, end_s)
-            if data is not None:
-                resultado[track] = data
+            resultado[track] = leer_senyal(zarr_path, track, start_s, end_s)
         except KeyError as e:
             print(f"[WARN] No se pudo leer {track}: {e}")
             continue
     
     return resultado
 
-def leer_prediccion(
-    zarr_path: str,
-    pred_name: str,
-    start_s: Optional[float] = None,
-    end_s: Optional[float] = None
-) -> Optional[pd.DataFrame]:
-    """
-    Lee una predicción almacenada en algorithms/, normalizando el path.
-
-    Retorna un DataFrame con:
-        t_abs_ms
-        t_rel_ms
-        values
-    o None si no existe.
-    """
-
-    root = open_root(zarr_path)
-    pred_path = normalize_pred_path(pred_name)
-
-    # Els datasets s'esperen al path:
-    #   algorithms/<pred_name>/time_ms
-    #   algorithms/<pred_name>/value
-    t_key = f"{pred_path}/time_ms"
-    v_key = f"{pred_path}/value"
-
-    if t_key not in root or v_key not in root:
-        return None
-
-    t_abs_ms = root[t_key][:].astype(np.int64)
-    values = root[v_key][:].astype(np.float32)
-
-    if t_abs_ms.size == 0:
-        return pd.DataFrame({
-            "t_abs_ms": t_abs_ms,
-            "t_rel_ms": t_abs_ms,
-            "values": values
-        })
-
-    # Temps relatiu
-    t0 = int(t_abs_ms[0])
-    t_rel_ms = (t_abs_ms - t0).astype(np.int64)
-
-    # Finestra temporal opcional
-    if start_s is not None or end_s is not None:
-        start_s = start_s or 0
-        end_s = end_s or (t_rel_ms[-1] / 1000.0)
-
-        t_rel_ms, values = slice_by_seconds(t_rel_ms, values, start_s, end_s)
-
-        # recalcular t_abs_ms per la finestra
-        if t_rel_ms.size > 0:
-            i0 = np.searchsorted(t_abs_ms, t_abs_ms[0] + int(start_s * 1000))
-            i1 = np.searchsorted(t_abs_ms, t_abs_ms[0] + int(end_s * 1000))
-            t_abs_ms = t_abs_ms[i0:i1]
-
-    return pd.DataFrame({
-        "t_abs_ms": t_abs_ms,
-        "t_rel_ms": t_rel_ms,
-        "values": values,
-    })
-
-
 def escribir_senyal(
     zarr_path: str,
-    track: str,
+    track_path: str,
     timestamps_ms: np.ndarray,
     values: np.ndarray,
     metadata: Optional[Dict] = None
-) -> Optional[bool]:  # Retornar None si falla
-    """Escribe un señal usando get_or_create_signal_pair() y append_1d()."""
+) -> None:
+    """
+    Escribe un señal usando get_or_create_signal_pair() y append_1d().
+    
+    Args:
+        zarr_path: Ruta al .zarr
+        track_path: Path donde guardar (ej: "Intellivue/PLETH")
+        timestamps_ms: Timestamps en milisegundos
+        values: Valores del señal
+        metadata: Dict opcional con metadatos
+    
+    Example:
+        >>> t_ms = np.arange(0, 10000, 5)  # 0-10s a 200Hz
+        >>> vals = np.sin(2 * np.pi * t_ms / 1000)
+        >>> escribir_senyal("data.zarr", "test/sine", t_ms, vals)
+    """
     if timestamps_ms.size != values.size:
-        return None
+        raise ValueError(f"Timestamps y values deben tener el mismo tamaño")
     
     root = open_root(zarr_path)
     signals_root = safe_group(root, "signals")
     
-    # No afegir 'signals/' si ja el té
     # Usar get_or_create_signal_pair para obtener los arrays
-    time_arr, data_arr = get_or_create_signal_pair(signals_root, track)
+    time_arr, data_arr = get_or_create_signal_pair(signals_root, track_path)
     
     # Usar append_1d para añadir los datos
     append_1d(time_arr, timestamps_ms.astype(np.int64))
@@ -598,67 +617,32 @@ def escribir_senyal(
     
     # Guardar metadata si se proporciona
     if metadata:
-        # Definir path_track correctament
-        path_parts = track.split("/")
-        grp = signals_root
-        for part in path_parts:
-            grp = grp.require_group(part)
-        
-        for k, v in metadata.items():
-            grp.attrs[k] = v
+        grp = safe_group(signals_root, track_path.rsplit("/", 1)[0] if "/" in track_path else "")
+        for key, val in metadata.items():
+            grp.attrs[key] = val
     
-    print(f"✅ Escritos {timestamps_ms.size} samples en signals/{track}")
-    return True
-
-
-def escribir_prediccion(
-    zarr_path: str,
-    pred_name: str,
-    timestamps_ms: np.ndarray,
-    values: np.ndarray,
-    modelo_info: Optional[Dict] = None
-) -> Optional[bool]:
-    """Escribe predicciones en pred/ usando las funciones existentes."""
-    if timestamps_ms.size != values.size:
-        return None
-    
-    root = open_root(zarr_path)
-    pred_root = safe_group(root, "algorithms")
-    
-    # Usar get_or_create_signal_pair
-    time_arr, data_arr = get_or_create_signal_pair(pred_root, pred_name)
-    
-    # Usar append_1d
-    append_1d(time_arr, timestamps_ms.astype(np.int64))
-    append_1d(data_arr, values.astype(np.float32))
-    
-    # Metadata del modelo
-    if modelo_info:
-        path_parts = pred_name.split("/")
-        grp = pred_root
-        for part in path_parts:
-            grp = grp.require_group(part)
-        
-        for key, val in modelo_info.items():
-            grp.attrs[f"model_{key}"] = val
-    
-    print(f"✅ Predicción '{pred_name}' guardada: {timestamps_ms.size} samples")
-    return True
-
+    print(f"✅ Escritos {timestamps_ms.size} samples en signals/{track_path}")
 
 def obtener_info_zarr(zarr_path: str) -> Dict:
-    """Resumen del contenido usando list_available_tracks() y load_track()."""
-    # list_available_tracks ja accepta zarr_path
-    signals, preds = list_available_tracks(zarr_path)
+    """
+    Resumen del contenido usando list_available_tracks() y load_track().
     
+    Returns:
+        dict con 'senyales', 'predicciones', 'n_senyales', etc.
+    
+    Example:
+        >>> info = obtener_info_zarr("data.zarr")
+        >>> print(f"Señales: {info['n_senyales']}, Preds: {info['n_predicciones']}")
+    """
     root = open_root(zarr_path)
+    signals, preds = list_available_tracks(root)
     
     # Calcular duración aproximada del primer señal
     duracion_total_s = 0
     if signals:
         try:
             _, t_rel, _ = load_track(root, signals[0])
-            if t_rel is not None and t_rel.size > 0:
+            if t_rel.size > 0:
                 duracion_total_s = t_rel[-1] / 1000.0
         except:
             pass
@@ -677,7 +661,19 @@ def escribir_batch_senyales(
     zarr_path: str,
     datos_dict: Dict[str, Tuple[np.ndarray, np.ndarray]]
 ) -> None:
-    """Escribe múltiples señales usando escribir_senyal() repetidamente."""
+    """
+    Escribe múltiples señales usando escribir_senyal() repetidamente.
+    
+    Args:
+        datos_dict: Dict donde key=track_path, value=(timestamps_ms, values)
+    
+    Example:
+        >>> datos = {
+        ...     "Intellivue/PLETH": (t_pleth_ms, v_pleth),
+        ...     "Intellivue/HR": (t_hr_ms, v_hr)
+        ... }
+        >>> escribir_batch_senyales("data.zarr", datos)
+    """
     for track_path, (timestamps_ms, values) in datos_dict.items():
         try:
             escribir_senyal(zarr_path, track_path, timestamps_ms, values)
@@ -695,7 +691,22 @@ def exportar_ventana_temporal(
     start_s: float,
     end_s: float
 ) -> None:
-    """Exporta una ventana temporal de múltiples señales a un nuevo Zarr."""
+    """
+    Exporta una ventana temporal de múltiples señales a un nuevo Zarr.
+    Usa: leer_multiples_senyales(), escribir_batch_senyales()
+    
+    Args:
+        zarr_path: Zarr de origen
+        output_path: Zarr de destino
+        track_paths: Señales a exportar
+        start_s: Inicio ventana
+        end_s: Fin ventana
+    
+    Example:
+        >>> exportar_ventana_temporal("full.zarr", "subset.zarr",
+        ...                          ["signals/Intellivue/PLETH", "signals/Intellivue/HR"],
+        ...                          start_s=300, end_s=600)
+    """
     # Leer datos de la ventana
     datos = leer_multiples_senyales(zarr_path, track_paths, start_s, end_s)
     
@@ -704,103 +715,10 @@ def exportar_ventana_temporal(
     for track, data in datos.items():
         # Quitar "signals/" del path si existe
         clean_track = track.replace("signals/", "")
-        datos_batch[clean_track] = (data['t_abs_ms'].values, data['values'].values)
+        datos_batch[clean_track] = (data['t_abs_ms'], data['values'])
     
     # Escribir al nuevo zarr
     escribir_batch_senyales(output_path, datos_batch)
     
     print(f"✅ Exportada ventana [{start_s}s - {end_s}s] a {output_path}")
 
-def leer_zattrs_de_grupo(zarr_path: str, grupo_path: str) -> Dict[str, any]:
-    """
-    Extrae y retorna el contenido del archivo .zattrs (metadatos)
-    de un grupo específico dentro del contenedor Zarr.
-
-    Args:
-        zarr_path: Ruta al archivo Zarr (ej: "session_data.zarr")
-        grupo_path: Path interno del grupo (ej: "signals/Intellivue/ECG_HR")
-
-    Returns:
-        Un diccionario (dict) con los metadatos. Retorna {} si el grupo 
-        no existe o si no hay metadatos.
-    """
-    
-    # Abrir el contenedor Zarr para obtener el grupo raíz
-    try:
-        root = open_root(zarr_path)
-    except Exception as e:
-        # En un entorno real, lanzaríamos un error o devolveríamos un código de fallo.
-        print(f"[ERROR] No se pudo abrir el archivo Zarr '{zarr_path}': {e}")
-        return {}
-
-    # Navegar hasta el grupo específico
-    target_group = get_group_if_exists(root, grupo_path)
-    if target_group is None:
-        print(f"[WARN] El grupo '{grupo_path}' no fue encontrado.")
-        return {}
-
-    # Acceder y devolver los metadatos (.zattrs)
-    return dict(target_group.attrs)
-
-
-
-def get_track_names_simplified(zarr_path: str) -> List[str]:
-    """
-    Obtiene los paths de las pistas disponibles y retorna solo el nombre de la señal, (ej: 'ECG_HR')
-    extrayendo el penúltimo directorio del path completo.
-
-    Args:
-        zarr_path: Ruta al archivo Zarr (ej: "results/session_data.zarr")
-
-    Returns:
-        Una lista de strings con los nombres simplificados de las pistas disponibles.
-    """
-    root = open_root(zarr_path)
-    
-    signal_paths, preds_paths = list_available_tracks(root)
-
-    all_tracks_paths = signal_paths + preds_paths
-
-    final_names = []
-    for track_path in all_tracks_paths:
-        parts = track_path.split('/')
-        if len(parts) >= 2:
-            track_name = parts[-2]
-            final_names.append(track_name)
-    return final_names
-
-def string_to_epoch1700(date_str: str, formato: str = FORMATO_TIMESTAMP) -> Union[float, None]:
-    """
-    Convierte una cadena de texto de fecha/hora (asumiendo que es UTC) 
-    a segundos transcurridos desde 1700-01-01 UTC.
-    
-    Args:
-        date_str: La cadena de fecha/hora (ej: '2025-11-20 13:03:00').
-        formato: El formato de la cadena (por defecto: '%Y-%m-%d %H:%M:%S').
-        
-    Returns:
-        Número de segundos (float) o None si falla o la fecha es anterior a 1700.
-    """
-    try:
-        # 1. Parsear la cadena a un objeto datetime (será 'naive' sin zona horaria)
-        dt_naive = datetime.strptime(date_str, formato)
-        
-        # 2. Asignar la zona horaria UTC para que sea compatible con epoch_1700
-        #    (Esto es crucial para la resta)
-        dt_utc = dt_naive.replace(tzinfo=timezone.utc)
-        
-    except ValueError as e:
-        print(f"[ERROR] Formato de fecha incorrecto: {e}")
-        return None
-
-    # 3. Definir el punto de referencia (Epoch 1700 UTC)
-    epoch_1700 = datetime(1700, 1, 1, tzinfo=timezone.utc)
-    
-    # 4. Calcular la diferencia
-    if dt_utc < epoch_1700:
-        return None
-        
-    time_difference: timedelta = dt_utc - epoch_1700
-    
-    # 5. Devolver la diferencia total en segundos
-    return time_difference.total_seconds()
