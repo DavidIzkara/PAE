@@ -60,14 +60,14 @@ class ShockIndex:
 
         hr = list_dataframe[hr_track] 
         sys = list_dataframe[sys_track]
-
+        
         # Deletes the nan values
-        hr_clean = hr[hr[hr_track].notna()]
-        sys_clean = sys[sys[sys_track].notna()]
+        hr_clean = hr[hr["value"].notna()]
+        sys_clean = sys[sys["value"].notna()]
 
         # Creates a new dataframe with timestamp | hr_value | sys_value where both values come from the same timestamp
         pre_si= hr_clean.merge(sys_clean, on="time_ms")
-        print(pre_si)
+        #print(pre_si)
 
         #Creates the SI dataframe: Timestamp | SI_value
         self.values = pd.DataFrame({'Timestamp': pre_si["time_ms"], 'SI': pre_si["value_x"] / pre_si["value_y"]})
