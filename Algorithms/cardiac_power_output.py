@@ -52,7 +52,7 @@ class CardiacPowerOutput:
         co = CardiacOutput(list_dataframe).values
 
         # Creates a new dataframe with timestamp | mean_value | co_value where both values come from the same timestamp
-        pre_cpo= mean_clean.merge(co, on="time_ms")
+        pre_cpo= mean_clean.merge(co, left_on="time_ms", right_on = 'Timestamp')
 
         #Creates the CPO dataframe: Timestamp | CPO_value
         return {'Timestamp': pre_cpo["time_ms"], 'CPO': pre_cpo["value_x"] * pre_cpo['CO']} 
