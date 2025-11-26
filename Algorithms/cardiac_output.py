@@ -52,8 +52,8 @@ class CardiacOutput:
         bld = list_dataframe[bld_track]
 
         # Deletes the nan values
-        hr_clean = hr[hr[hr_track].notna()]
-        bld_clean = bld[bld[bld_track].notna()]
+        hr_clean = hr[hr["value"].notna()]
+        bld_clean = bld[bld["value"].notna()]
 
         # Creates a new dataframe with timestamp | bld_value | bld_value where both values come from the same timestamp
         pre_co= bld_clean.merge(hr_clean, on="time_ms")
