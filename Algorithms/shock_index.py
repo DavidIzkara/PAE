@@ -62,11 +62,11 @@ class ShockIndex:
         sys = list_dataframe[sys_track]
 
         # Creates a new dataframe with timestamp | hr_value | sys_value where both values come from the same timestamp
-        pre_si= hr.merge(sys, on="t_abs_ms")
-        #print(pre_si)
+        pre_si= hr.merge(sys, on="time_ms")
+        print(pre_si)
 
         #Creates the SI dataframe: Timestamp | SI_value
-        self.values = pd.DataFrame({'Timestamp': pre_si["t_abs_ms"], 'SI': pre_si["values_x"] / pre_si["values_y"]})
+        self.values = pd.DataFrame({'Timestamp': pre_si["time_ms"], 'SI': pre_si["value_x"] / pre_si["value_y"]})
        
 
 #Handles both invasive and non-invasive blood pressure by checking available tracks.
