@@ -6,6 +6,7 @@ stored in Zarr format.
 Compatible with Zarr v2 (appendable 1D datasets, Blosc compression).
 """
 
+import hashlib
 import os
 import time
 import numpy as np
@@ -29,8 +30,11 @@ FRAME_SIGNAL_DEMO = "signals/Demo/"
 FORMATO_TIMESTAMP = "%Y-%m-%d %H:%M:%S"
 
 
-def generar_uid():
-    token = base64.b32encode(os.urandom(6)).decode('utf-8').rstrip('=')
+def generar_uid(vital_path:str)-> str:
+    #El mateix .vital → sempre el mateix UID.
+    base = os.path.basename(vital_path)  # ex: "n5j8vrrsb_250127_100027.vital"
+    digest = hashlib.sha256(base.encode("utf-8")).digest()
+    token = base64.b32encode(digest[:6]).decode("utf-8").rstrip("=")
     return "UI" + token[:8]
 
 
@@ -45,6 +49,8 @@ ALGORITMOS_VISIBLES = {
     'Cardiac Power Output'
     'Effective Arterial Elastance'
 }
+
+
 
 # ---------------------------------------------------------------------
 # 🧱 BASIC HELPERS
@@ -170,7 +176,7 @@ def get_or_create_1d(
         compressor=compressor,
         fill_value=fill,
         overwrite=False,
-        maxshape=(None,),
+        
     )
 # group -> És un subgrup intern dins d'aquesta jerarquia. 
 # És simplement un directori dins el Zarr.
@@ -335,19 +341,22 @@ def vital_to_zarr(
 
     root = open_root(zarr_path)
 
+    # metadata
+    root.attrs.setdefault("schema", "v1")
+    root.attrs.setdefault("created_by", "zarr_utils")
+    root.attrs.setdefault("time_origin", "epoch1700_ms")
+    root.attrs["last_updated"] = time.strftime("%Y-%m-%d %H:%M:%S")
+
+    # Guardem el UID (última carpeta del path)
     if "patient_uid" not in root.attrs:
-        root.attrs["patient_uid"] = generar_uid()
+        root.attrs["patient_uid"] = os.path.basename(zarr_path)
 
     signals_root = safe_group(root, "signals")
 
     written_tracks = 0
     total_added = 0
 
-     # metadata
-    root.attrs.setdefault("schema", "v1")
-    root.attrs.setdefault("created_by", "zarr_utils")
-    root.attrs.setdefault("time_origin", "epoch1700_ms")
-    root.attrs["last_updated"] = time.strftime("%Y-%m-%d %H:%M:%S")
+     
 
     for track in tracks:
         # 1) Llegim la track del Vital com a DataFrame
@@ -381,12 +390,30 @@ def vital_to_zarr(
         # 4) Grup al Zarr: signals/<track>/time_ms + value
         grp = safe_group(signals_root, track)
 
-        ds_time = grp.require_dataset(
-            "time_ms", shape=(0,), chunks=(chunk_len,), dtype="int64", compressor=_DEFAULT_COMPRESSOR
-        )
-        ds_val = grp.require_dataset(
-            "value", shape=(0,), chunks=(chunk_len,), dtype="float32", compressor=_DEFAULT_COMPRESSOR
-        )
+        # time_ms
+        if "time_ms" in grp:
+            ds_time = grp["time_ms"]
+        else:
+            ds_time = grp.create_dataset(
+                "time_ms",
+                shape=(0,),
+                chunks=(chunk_len,),
+                dtype="int64",
+                compressor=_DEFAULT_COMPRESSOR,
+            )
+
+        # value
+        if "value" in grp:
+            ds_val = grp["value"]
+        else:
+            ds_val = grp.create_dataset(
+                "value",
+                shape=(0,),
+                chunks=(chunk_len,),
+                dtype="float32",
+                compressor=_DEFAULT_COMPRESSOR,
+            )
+
 
         # 5) Mode APPEND: només afegim mostres noves (ts_ms > last_ts)
         if ds_time.size > 0:
@@ -459,7 +486,7 @@ def leer_senyal(
 ) -> Optional[pd.DataFrame]:
     """
     Función de alto nivel para leer un señal fácilmente.
-    Trabaja únicamente con tiempo absoluto (t_abs_ms).
+    
     """
     root = open_root(zarr_path)
     time_ms, value = load_track(root, track)
@@ -740,3 +767,103 @@ def exportar_ventana_temporal(
     escribir_batch_senyales(output_path, datos_batch)
     
     print(f"✅ Exportada ventana [{start_s}s - {end_s}s] a {output_path}")
+# ---------------------------------------------------------------------
+# DISPATCH HELPERS
+# ---------------------------------------------------------------------
+def prepare_zarr_for_algorithms(
+    vital_path: str,
+    zarr_path: str,
+    algo_names: List[str],
+    algorithms_catalog: Dict[str, Dict[str, Any]],
+    window_secs: float | None = None,
+) -> None:
+    """
+    Calcula la unió de totes les REQUIRED_TRACKS dels algoritmes seleccionats
+    i crida vital_to_zarr UNA sola vegada per exportar-les/actualitzar-les.
+
+    `algorithms_catalog` és un dict del tipus:
+        {
+            "cardiac_output": {
+                "required_tracks": [...],
+                "runner": CardiacOutput,
+            },
+            ...
+        }
+    """
+    all_tracks: set[str] = set()
+
+    for name in algo_names:
+        info = algorithms_catalog.get(name)
+        if info is None:
+            print(f"[WARN] Algoritme desconegut: {name}")
+            continue
+        all_tracks.update(info["required_tracks"])
+
+    if not all_tracks:
+        print("[WARN] No hi ha tracks a exportar (cap algoritme vàlid).")
+        return
+
+    print("\n[DISPATCH] Algoritmes seleccionats:", algo_names)
+    print("[DISPATCH] Tracks a exportar/actualitzar:")
+    for t in sorted(all_tracks):
+        print("   -", t)
+
+    vital_to_zarr(
+        vital_file=vital_path,
+        zarr_path=zarr_path,
+        tracks=sorted(all_tracks),
+        window_secs=window_secs,
+    )
+
+
+def run_algorithms_on_zarr(
+    zarr_path: str,
+    algo_names: List[str],
+    algorithms_catalog: Dict[str, Dict[str, Any]],
+) -> Dict[str, Any]:
+    """
+    Executa els algoritmes indicats sobre el Zarr i retorna un dict
+    {nom_algoritme: instància_o_None}.
+    Si detecta 'cardiac_output' amb atributs t_last_ms i co_last, en guarda la predicció.
+    """
+    results: Dict[str, Any] = {}
+
+    for name in algo_names:
+        info = algorithms_catalog.get(name)
+        if info is None:
+            print(f"[WARN] Algoritme desconegut: {name}")
+            continue
+
+        runner = info["runner"]
+
+        try:
+            algo_instance = runner(zarr_path)
+            results[name] = algo_instance
+
+            # Exemple específic per 'cardiac_output'
+            if (
+                name == "cardiac_output"
+                and getattr(algo_instance, "t_last_ms", None) is not None
+                and getattr(algo_instance, "co_last", None) is not None
+            ):
+                t_arr = np.asarray([algo_instance.t_last_ms], dtype=np.int64)
+                v_arr = np.asarray([algo_instance.co_last], dtype=np.float32)
+
+                escribir_prediccion(
+                    zarr_path=zarr_path,
+                    pred_name="cardiac_output",
+                    timestamps_ms=t_arr,
+                    values=v_arr,
+                    modelo_info={"source": "dispatcher", "algo": "cardiac_output"},
+                )
+
+                print(
+                    f"[ALG-STORE] {name}: guardat últim punt "
+                    f"(t_ms={algo_instance.t_last_ms}, value={algo_instance.co_last:.2f}) a 'predictions/cardiac_output'"
+                )
+
+        except ValueError as e:
+            print(f"[WARN] No s'ha pogut calcular '{name}': {e}")
+            results[name] = None
+
+    return results
