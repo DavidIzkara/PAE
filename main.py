@@ -72,8 +72,46 @@ def main():
     try:
         if modo == "offline":
             print("Modo offline activado. Esperando acciones...")
-            while True:
-                time.sleep(1)
+            #recordings_dir = r"" pendiente poner el path del vital_file
+            vital_path = find_latest_vital(recordings_dir)
+            vf = VitalFile(vital_path)
+            
+            tracks = vf.get_track_names()
+            possible_list = check_availability(tracks)
+            print("Los algoritmos disponibles son: ", possible_list )
+            
+            results = {}
+            for algorithm in possible_list:
+            
+                 if algorithm == 'Shock Index':
+                     results['Shock Index'] = ShockIndex(vf).values
+                 elif algorithm == 'Driving Pressure':
+                     results['Driving Pressure'] = DrivingPressure(vf).values
+                 elif algorithm == 'Dynamic Compliance':
+                     results['Dynamic Compliance'] = DynamicCompliance(vf).values
+                 elif algorithm == 'ROX Index':
+                     results['ROX Index'] = RoxIndex(vf).values
+                 elif algorithm == 'Temp Comparison':
+                     results['Temp Comparison'] = TempComparison(vf).values
+                 elif algorithm == 'Cardiac Output':
+                     results['Cardiac Output'] = CardiacOutput(vf).values
+                 elif algorithm == 'Systemic Vascular Resistance':
+                     results['Systemic Vascular Resistance'] = SystemicVascularResistance(vf).values
+                 elif algorithm == 'Cardiac Power Output':
+                     results['Cardiac Power Output'] = CardiacPowerOutput(vf).values
+                 elif algorithm == 'Effective Arterial Elastance':
+                     results['Effective Arterial Elastance'] = EffectiveArterialElastance(vf).values
+                if algorithm == 'Heart Rate Variability':
+                    results['Heart Rate Variability'] = HeartRateVariability(vf)  #No tiene values definido aún
+                
+                 # Pendiente añadir Variables autonomicas
+                 elif algorithm == 'ICP Model':
+                    results['ICP Model'] = icp_model() #Pendiente ver como añadir el modelo de ICP
+                 elif algorithm == 'ABP Model':
+                    results['ABP Model'] = abp_model() #Pendiente ver como añadir el modelo de ABP
+
+            #Pendiente exportar los resultados a csv o a un vitalfile o hacer algo con ellos
+        
         elif modo == "online":
             print("Modo online activado. Iniciando monitoreo y ejecución de algoritmos...")
             while True:
