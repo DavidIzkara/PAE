@@ -11,6 +11,7 @@ import time
 import numpy as np
 import pandas as pd
 import zarr
+import base64
 from numcodecs import Blosc
 from datetime import datetime, timezone, timedelta
 from typing import Dict, List, Optional, Tuple, Any, Union
@@ -27,6 +28,10 @@ FRAME_SIGNAL = "signals/Intellivue/"
 FRAME_SIGNAL_DEMO = "signals/Demo/"
 FORMATO_TIMESTAMP = "%Y-%m-%d %H:%M:%S"
 
+
+def generar_uid():
+    token = base64.b32encode(os.urandom(6)).decode('utf-8').rstrip('=')
+    return "UI" + token[:8]
 
 
 ALGORITMOS_VISIBLES = {
@@ -296,7 +301,7 @@ def list_available_tracks(zarr_path):
         ]
     return signals, preds
 
-def _track_exists(signals, track_name: str) -> bool:
+def track_exists(signals, track_name: str) -> bool:
     if "/" not in track_name:
         return False
     vendor, track = track_name.split("/", 1)
@@ -329,6 +334,10 @@ def vital_to_zarr(
     vf = VitalFile(vital_file)
 
     root = open_root(zarr_path)
+
+    if "patient_uid" not in root.attrs:
+        root.attrs["patient_uid"] = generar_uid()
+
     signals_root = safe_group(root, "signals")
 
     written_tracks = 0
@@ -453,9 +462,9 @@ def leer_senyal(
     Trabaja únicamente con tiempo absoluto (t_abs_ms).
     """
     root = open_root(zarr_path)
-    t_abs_ms, values = load_track(root, track)
+    time_ms, value = load_track(root, track)
 
-    if t_abs_ms is None:
+    if time_ms is None:
         return None
     
     # Aplicar ventana temporal (segons des del primer punt)
@@ -463,13 +472,13 @@ def leer_senyal(
         if start_s is None:
             start_s = 0.0
         if end_s is None:
-            end_s = (t_abs_ms[-1] - t_abs_ms[0]) / 1000.0 if t_abs_ms.size > 0 else 0.0
+            end_s = (time_ms[-1] - time_ms[0]) / 1000.0 if time_ms.size > 0 else 0.0
         
-        t_abs_ms, values = slice_by_seconds(t_abs_ms, values, start_s, end_s)
+        time_ms, value = slice_by_seconds(time_ms, value, start_s, end_s)
     
     df = pd.DataFrame({
-        "t_abs_ms": t_abs_ms,
-        "values": values,
+        "time_ms": time_ms,
+        "value": value,
     })
 
     return df
@@ -490,7 +499,7 @@ def leer_multiples_senyales(
         end_s: Fin ventana temporal (opcional, segundos desde el primer punto)
     
     Returns:
-        dict donde key=track_path, value=DataFrame con columnas ['t_abs_ms', 'values']
+        dict donde key=track_path, value=DataFrame con columnas ['time_ms', 'value']
     """
     resultado = {}
     
@@ -731,4 +740,3 @@ def exportar_ventana_temporal(
     escribir_batch_senyales(output_path, datos_batch)
     
     print(f"✅ Exportada ventana [{start_s}s - {end_s}s] a {output_path}")
-
