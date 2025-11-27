@@ -102,7 +102,13 @@ def main():
                  elif algorithm == 'Effective Arterial Elastance':
                      results['Effective Arterial Elastance'] = EffectiveArterialElastance(vf).values
                 if algorithm == 'Heart Rate Variability':
-                    results['Heart Rate Variability'] = HeartRateVariability(vf)  #No tiene values definido aún
+                    results['Heart Rate Variability'] = HeartRateVariability(vf).values  
+            #     elif algorithm =='Blood Pressure Variability':
+            #         results['Blood Pressure Variability'] = BloodPressureVariability(vf).values
+            #     elif algorithm =='BRS':
+            #         results['BRS'] = BRS(vf).values
+            #     elif algorithm =='RSA:
+            #         results['RSA'] = RSA(vf).values
                 
                  # Pendiente añadir Variables autonomicas
                  elif algorithm == 'ICP Model':
