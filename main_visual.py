@@ -56,25 +56,37 @@ def seleccionar_modo_gui():
 
 
 def main():
-    modo = seleccionar_modo_gui()
+    # Bucle principal: mostrar selector repetidamente. Cuando la ventana
+    # de la interfaz (modo online) se cierre, volvemos a mostrar el selector.
+    while True:
+        modo = seleccionar_modo_gui()
 
-    if modo is None:
-        print("No se seleccionó modo. Saliendo.")
-        return
+        if modo is None:
+            print("No se seleccionó modo. Saliendo.")
+            break
 
-    if modo == "offline":
-        print("Modo offline activado. Esperando acciones...")
-        while True:
-            time.sleep(1)
+        if modo == "offline":
+            print("Modo offline activado. Esperando acciones... (Ctrl+C para volver al selector)")
+            try:
+                while True:
+                    time.sleep(1)
+            except KeyboardInterrupt:
+                print("Saliendo de modo offline, volviendo al selector.")
+                continue
 
-    elif modo == "online":
-        print("Modo online activado. Iniciando interfaz gráfica...")
-        from Front.Interface import RealTimeApp
-        app = RealTimeApp()
-        app.mainloop()
+        elif modo == "online":
+            print("Modo online activado. Iniciando interfaz gráfica...")
+            from Front.Interface import RealTimeApp
+            app = RealTimeApp()
+            # `app.mainloop()` bloqueará hasta que la ventana sea destruida;
+            # al volver, el bucle repetirá y se mostrará el selector de modo.
+            app.mainloop()
+            print("Interfaz cerrada. Volviendo al selector de modo.")
+            continue
 
-    else:
-        print("Modo no reconocido. Saliendo.")
+        else:
+            print("Modo no reconocido. Saliendo.")
+            break
 
 
 if __name__ == '__main__':
