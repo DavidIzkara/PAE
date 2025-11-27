@@ -52,7 +52,9 @@ class HeartRateVariability:
                  next((t for t in available_tracks if 'Intellivue/ECG_III' in t), 
                       next((t for t in available_tracks if 'Intellivue/ECG_V' in t), None)))) 
         
-        hr = list_dataframe[hr_track]
+        hr_raw = list_dataframe[hr_track]
+        hr = pd.DataFrame({hr_track:hr_raw["value"], 'Time': hr_raw["time_ms"] })
+        print("Zarr hr",hr)
         rr = compute_rr(hr, hr_track)
 
         # Calculate HRV metrics
