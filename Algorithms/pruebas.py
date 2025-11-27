@@ -86,8 +86,9 @@ print("Los algoritmos disponibles son: ", possible_list )
 
     #Pendiente añadir otros algoritmos.
 
-#Print results to verify
-#print("DC: ", results['Dynamic Compliance'])
+
+# Print results to verify
+# print("HRV: ", results['Heart Rate Variability'])
 
 #Pendientes de verificar con otro .vital
 #print("RI: ", results['ROX Index'])
@@ -101,13 +102,13 @@ print("Los algoritmos disponibles son: ", possible_list )
 
 ##########      Función para crear un fucking zarr
 
-#recordings_dir = r"C:\Users\doi99\Desktop\PAE\records"
-#vital_path = find_latest_vital(recordings_dir)
-#vf = VitalFile(vital_path)
-#tracks = vf.get_track_names()
+# recordings_dir = r"C:\Users\doi99\Desktop\PAE\records"
+# vital_path = find_latest_vital(recordings_dir)
+# vf = VitalFile(vital_path)
+# tracks = vf.get_track_names()
 
-#zarr_path =r"C:\Users\doi99\Desktop\PAE\records"
-#vital_to_zarr( vital_path, zarr_path, tracks)
+# zarr_path =r"C:\Users\doi99\Desktop\PAE\records"
+# vital_to_zarr( vital_path, zarr_path, tracks)
 
 ###########     Función para crear un fucking zarr
 
@@ -127,7 +128,7 @@ zarr_path=r"C:\Users\doi99\Desktop\PAE\records"
 
 tracks_hrv = ['Intellivue/ECG_I', 'Intellivue/ECG_II', 'Intellivue/ECG_III', 'Intellivue/ECG_V']
 dataframe_hrv = leer_multiples_senyales(zarr_path,tracks_hrv)
-print("AQUI VA EL HRV:", HeartRateVariability(dataframe_hrv))
+print("AQUI VA EL HRV:", HeartRateVariability(dataframe_hrv).values)
 
 #recordings_dir = r"C:\Users\doi99\Desktop\PAE\records"
 #vital_path = find_latest_vital(recordings_dir)
