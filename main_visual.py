@@ -1,12 +1,13 @@
 import time
-#from Streaming import monitorizar_actualizacion_recurso
-#from Algorithms import ejecutar_algoritmos
-from Front import Interface
+# from Streaming import monitorizar_actualizacion_recurso
+# from Algorithms import ejecutar_algoritmos
+
 
 def seleccionar_modo_gui():
     try:
         import tkinter as tk
     except Exception:
+        # Fallback a consola si no hay Tk
         try:
             return input("Selecciona modo (online/offline): ")
         except Exception:
@@ -31,13 +32,18 @@ def seleccionar_modo_gui():
 
     lbl = tk.Label(root, text='Selecciona modo:')
     lbl.pack(pady=(12, 6))
+
     frm = tk.Frame(root)
     frm.pack(pady=(0, 8))
 
-    btn_off = tk.Button(frm, text='Offline', width=10, command=lambda: set_mode('offline'))
+    btn_off = tk.Button(frm, text='Offline', width=10,
+                        command=lambda: set_mode('offline'))
     btn_off.pack(side='left', padx=10)
-    btn_on = tk.Button(frm, text='Online', width=10, command=lambda: set_mode('online'))
+
+    btn_on = tk.Button(frm, text='Online', width=10,
+                       command=lambda: set_mode('online'))
     btn_on.pack(side='left', padx=10)
+
     root.protocol('WM_DELETE_WINDOW', lambda: set_mode(None))
 
     root.mainloop()
@@ -47,6 +53,7 @@ def seleccionar_modo_gui():
         pass
 
     return selection['mode']
+
 
 def main():
     modo = seleccionar_modo_gui()
@@ -59,11 +66,16 @@ def main():
         print("Modo offline activado. Esperando acciones...")
         while True:
             time.sleep(1)
+
     elif modo == "online":
         print("Modo online activado. Iniciando interfaz gráfica...")
-        import Interface  # Aquí lanzas Interface.py **solo para modo online**
+        from Front.Interface import RealTimeApp
+        app = RealTimeApp()
+        app.mainloop()
+
     else:
         print("Modo no reconocido. Saliendo.")
+
 
 if __name__ == '__main__':
     main()
