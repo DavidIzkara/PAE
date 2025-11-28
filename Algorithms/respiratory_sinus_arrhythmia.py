@@ -74,11 +74,11 @@ class RespiratorySinusArrhythmia:
         self.values = pd.DataFrame({'Time_ini_ms': values["Time_ini_ms"], 'Time_fin_ms': values["Time_fin_ms"], 'RSA': values["RSA"]})
 
     def compute_rsa(self,rr_intervals,resp_signal):
-        resp_vals = resp_df['value'].values
-        resp_times = resp_df['Time'].values
+        resp_vals = resp_signal['value'].values
+        resp_times = resp_signal['Time'].values
 
-        rr_vals = rr_df['rr'].values
-        rr_times = rr_df['Time_fin_ms'].values 
+        rr_vals = rr_intervals['rr'].values
+        rr_times = rr_intervals['Time_fin_ms'].values 
 
         peaks_idx, _ = find_peaks(resp_vals, distance=250) 
         
