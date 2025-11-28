@@ -1,5 +1,6 @@
 import vitaldb
 import numpy as np
+import pandas as pd
 from scipy.stats import linregress
 from scipy.signal import find_peaks
 from compute_rr import compute_rr
@@ -159,3 +160,4 @@ class BaroreflexSensitivity:
         else:
             print("No se encontraron secuencias válidas para BRS.")
             return pd.DataFrame(columns=["Time_ini_ms", "Time_fin_ms", "BRS"])
+
