@@ -1,7 +1,9 @@
 import time
-from Streaming import monitorizar_actualizacion_recurso
 from Algorithms import ejecutar_algoritmos
 from Front import Interface
+from Streaming.Streaming_to_zarr import main_loop
+from Streaming.zarr_to_algorithms import main_to_loop
+from Zarr.utils_zarr_corrected import ALGORITMOS_VISIBLES, STORE_PATH, escribir_prediccion
 
 
 def seleccionar_modo_gui():
@@ -61,6 +63,45 @@ def seleccionar_modo_gui():
 
     return selection['mode']
 
+def iniciar_streaming_en_thread():
+    import threading
+
+    stop_event = threading.Event()
+    streaming_thread = threading.Thread(target = main_loop, args=(stop_event,), name = "StreamingThread")
+
+    print("-- Iniciando Streaming (Streaming_to_zarr.py) en thread separado --")
+    streaming_thread.start()
+
+    try:
+        # El programa principal
+        print("-- Iniciando bucle (zarr_to_algorithms.py) en Hilo Principal --")
+
+        while True:
+            results = main_to_loop() # Funcion principal del zarr_to_algorithms.py
+            
+            for NombreAlgoritmo, df_result in results.items():
+                value_columns = [col for col in df_result.columns if col != 'Timestamp' and col != 'Time_ini_ms' and col != 'Time_fin_ms']
+                if 'Timestamp' in df_result.columns:
+                    time_ms_array = df_result['Timestamp'].values
+                    time_count = 1
+                else:
+                    time_ini_ms_array = df_result['Time_ini_ms'].values
+                    time_fin_ms_array = df_result['Time_fin_ms'].values
+                    time_count = 2
+                
+                visible = NombreAlgoritmo in ALGORITMOS_VISIBLES
+
+                for track_name in value_columns:
+                    value_array = df_result[track_name].values
+                    if time_count == 1:
+                        escribir_prediccion(STORE_PATH, track_name, time_ms_array, value_array, model_info = {"model": NombreAlgoritmo, "visibilidad": visible})
+                    else:
+                        escribir_prediccion(STORE_PATH, track_name, time_ini_ms_array, value_array, model_info = {"model": NombreAlgoritmo, "visibilidad": visible}, time_fin_ms_array)
+    except KeyboardInterrupt:
+        print('\nInterrupción de usuario recibida. Deteniendo Streaming...')
+        stop_event.set()
+        streaming_thread.join()
+        print('Streaming detenido. Programa finalizado.')
 
 def main():
     modo = seleccionar_modo_gui()
@@ -120,11 +161,7 @@ def main():
         
         elif modo == "online":
             print("Modo online activado. Iniciando monitoreo y ejecución de algoritmos...")
-            while True:
-                monitorizar_actualizacion_recurso()
-                ejecutar_algoritmos()
-                actualizar_interfaz()
-                time.sleep(1)  # Para evitar que el bucle consuma mucho CPU
+            iniciar_streaming_en_thread()
         else:
             print("Modo no reconocido. Saliendo.")
     except KeyboardInterrupt:
