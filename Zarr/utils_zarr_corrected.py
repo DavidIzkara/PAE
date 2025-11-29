@@ -590,16 +590,22 @@ def escribir_prediccion(
     pred_name: str, 
     timestamps_ms: np.ndarray,
     values: np.ndarray,
-    modelo_info: Optional[Dict] = None
+    modelo_info: Optional[Dict],
+    timestamps_fin_ms: np.ndarray = None
 ) -> None:
     """
     Escribe predicciones en Zarr bajo la estructura:
     ROOT/predictions/MODEL_NAME/PRED_NAME/time_ms
     ROOT/predictions/MODEL_NAME/PRED_NAME/value
     """
+    multi_timestamp = False
+
     if timestamps_ms.size != values.size:
         raise ValueError(f"Timestamps y values deben tener el mismo tamaño")
     
+    if timestamps_fin_ms is not None:
+        multi_timestamp = True
+
     root = open_root(zarr_path)
     
     # 1. Obtener el nombre del algoritmo/modelo (Ejemplo: 'Shock Index')
@@ -618,12 +624,21 @@ def escribir_prediccion(
     # 4. Crear o abrir los datasets 'time_ms' y 'value' DENTRO del grupo 'grp' ('SI')
     # Usamos get_or_create_1d directamente para evitar estructuras de carpetas anidadas no deseadas.
     # (Asumo que get_or_create_1d y append_1d están disponibles en utils_zarr.py)
-    time_arr = get_or_create_1d(grp, "time_ms", dtype="i8", fill=-1)
-    data_arr = get_or_create_1d(grp, "value", dtype=values.dtype, fill=np.nan)
+    if multi_timestamp:
+        time_ini_arr = get_or_create_1d(grp, "time_ini_ms", dtype="i8", fill=-1)
+        time_fin_arr = get_or_create_1d(grp, "time_fin_ms", dtype="i8", fill=-1)
+        data_arr = get_or_create_1d(grp, "value", dtype=values.dtype, fill=np.nan)
+        append_1d(time_ini_arr, timestamps_ms.astype(np.int64))
+        append_1d(time_fin_arr, timestamps_fin_ms.astype(np.int64))
+        append_1d(data_arr, values.astype(np.float32))
+    else:
+        time_arr = get_or_create_1d(grp, "time_ms", dtype="i8", fill=-1)
+        data_arr = get_or_create_1d(grp, "value", dtype=values.dtype, fill=np.nan)
+        append_1d(time_arr, timestamps_ms.astype(np.int64))
+        append_1d(data_arr, values.astype(np.float32))
     
     # 5. Adjuntar los datos
-    append_1d(time_arr, timestamps_ms.astype(np.int64))
-    append_1d(data_arr, values.astype(np.float32))
+    
     
     # 6. Metadata del modelo: se añade al grupo 'SI' (grp)
     if modelo_info:
