@@ -1,10 +1,10 @@
 import os
 import time
 import numpy as np
+import threading
 import random 
-from utils_zarr import safe_group, get_group_if_exists, append_1d, open_root
-from utils_Streaming import OUTPUT_DIR, WAVE_TRACKS_FREQUENCIES, WAVE_STANDARD_RATE, obtener_vital_timestamp, obtener_directorio_del_dia, obtener_vital_mas_reciente
-from numcodecs import Blosc 
+from Zarr.utils_zarr_corrected import _DEFAULT_COMPRESSOR, STORE_PATH, safe_group, get_group_if_exists, append_1d, open_root
+from utils_Streaming import WAVE_TRACKS_FREQUENCIES, WAVE_STANDARD_RATE, obtener_vital_timestamp, obtener_directorio_del_dia, obtener_vital_mas_reciente
 from vitaldb import VitalFile 
 
 BASE_DIR = r"C:\Users\UX636EU\OneDrive - EY\Desktop\recordings" 
@@ -20,8 +20,6 @@ SIM_MIN_SECS = 20
 SIM_MAX_SECS = 30
 
 # -------------------------------------------------------------------------------------------
-ZARR_PATH = os.path.join(OUTPUT_DIR, "session_data.zarr") 
-_COMPRESSOR = Blosc(cname='zstd', clevel=5, shuffle=Blosc.BITSHUFFLE)
 
 def vital_to_zarr_streaming(
     vital_path: str,
@@ -71,27 +69,27 @@ def vital_to_zarr_streaming(
             interval = 1.0 / rate 
 
         # Leer la variable a la frequencia determinada (para evitar valores vacios o NaN)
-        #try:
-        data = vf.to_numpy([track], interval=interval, return_timestamp=True)
-        # except Exception as e:
-        #     print(f"[WARN] No s'ha pogut llegir el track '{track}' amb interval={interval}: {e}")
-        #     skipped_empty += 1
-        #     continue
+        try:
+            data = vf.to_numpy([track], interval=interval, return_timestamp=True)
+        except Exception as e:
+            print(f"[WARN] No s'ha pogut llegir el track '{track}' amb interval={interval}: {e}")
+            skipped_empty += 1
+            continue
 
-        # if data is None or data.size == 0:
-        #     skipped_empty += 1
-        #     continue
+        if data is None or data.size == 0:
+            skipped_empty += 1
+            continue
 
         ts = data[:, 0].astype(np.float64, copy=False) # Guardar y transformar el timestamp en float64
 
         raw_vals = data[:, 1]
         vals = np.full(raw_vals.size, np.nan, dtype=np.float64) # Guardar y transoformar los datos en float64
 
-        # for i, val in enumerate(raw_vals):
-        #     try:
-        #         vals[i] = float(val)
-        #     except (TypeError, ValueError):
-        #         vals[i] = np.nan
+        for i, val in enumerate(raw_vals):
+            try:
+                vals[i] = float(val)
+            except (TypeError, ValueError):
+                vals[i] = np.nan
 
         current_total_count = len(vals) # Guardamos el total de muestras
         last_count = last_read_counts.get(track, 0)
@@ -154,8 +152,8 @@ def vital_to_zarr_streaming(
                 ds_time = grp["time_ms"] # Si existe el dataset simplemente guarda el grupo
                 ds_val = grp["value"]
             else: # Si no existe el dataset, crealo
-                ds_time = grp.require_dataset("time_ms", shape=(0,), maxshape=(None,), chunks=(chunk_len,), dtype="int64", compressor=_COMPRESSOR)
-                ds_val = grp.require_dataset("value", shape=(0,), maxshape=(None,), chunks=(chunk_len,), dtype="float32", compressor=_COMPRESSOR)
+                ds_time = grp.require_dataset("time_ms", shape=(0,), maxshape=(None,), chunks=(chunk_len,), dtype="int64", compressor=_DEFAULT_COMPRESSOR)
+                ds_val = grp.require_dataset("value", shape=(0,), maxshape=(None,), chunks=(chunk_len,), dtype="float32", compressor=_DEFAULT_COMPRESSOR)
         except Exception as e:
             raise Exception(f"Falla la creació o el resize de l'array Zarr per a '{track}': {type(e).__name__}: {e}")
 
@@ -216,14 +214,14 @@ def verificar_y_procesar(vital_path, last_size, last_read_counts, simulated_grow
     
     for attemp in range(3):
         try:
-            print(f"\n--- INICIANT PROCESSAMENT ZARR AL FITXER: {ZARR_PATH} ---")
+            print(f"\n--- INICIANT PROCESSAMENT ZARR AL FITXER: {STORE_PATH} ---")
             
             window_to_process = simulated_growth_seconds if PRUEVAS else None # En caso de no ser PRUEVAS, esto no sirve de nada
 
             # CRIDA MODIFICADA: Passem i capturem el diccionari de conteos
             new_last_read_counts = vital_to_zarr_streaming( 
                 vital_path=vital_path,
-                zarr_path=ZARR_PATH, 
+                zarr_path=STORE_PATH, 
                 last_read_counts=last_read_counts, 
                 simulated_growth_seconds=window_to_process # Passarle al vital_to_zarr los segundos de simulacion
             )
@@ -248,7 +246,7 @@ def verificar_y_procesar(vital_path, last_size, last_read_counts, simulated_grow
 
 # --------------------------------------------------------------------------------------
 
-def main_loop():
+def main_loop(stop_event: threading.Event):
     if PRUEVAS:
         directorio_dia = DIRECTORIO_PRUEVA
         vital_path = os.path.join(DIRECTORIO_PRUEVA, ARCHIVO_VITAL)
@@ -268,14 +266,18 @@ def main_loop():
     print(f" Carpeta del día: {directorio_dia}")
     print(f" Archivo .vital más reciente: {os.path.basename(vital_path)}")
     print(f" Timestamp de Sesión (per a Zarr): {session_timestamp}")
-    print(f" Directorio de salida ZARR (Acumulativo): {ZARR_PATH}")
+    print(f" Directorio de salida ZARR (Acumulativo): {STORE_PATH}")
     print(f" Iniciando Polling cada {POLLING_INTERVAL} segundos")
 
     last_size = -1
     last_read_counts = {} # Inicializacion de la variable
 
+    if PRUEVAS:
+        total_sim_cycles = 10 
+        current_sim_cycle = 0
+
     try:
-        while True:
+        while not stop_event.is_set():
             if PRUEVAS:
                 simulated_growth_seconds = random.randint(SIM_MIN_SECS, SIM_MAX_SECS)
                 print(f"\n--- SIMULACIÓN ---: Leyendo bloque de {simulated_growth_seconds} segundos.")
@@ -294,6 +296,13 @@ def main_loop():
             if PRUEVAS:
                 if finished:
                     print("\n--- SIMULACIÓN FINALIZADA: Archivo no disponible o terminado. ---")
+                    stop_event.set()
+                    break
+
+                current_sim_cycle += 1
+
+                if current_sim_cycle >= total_sim_cycles:
+                    print(f"\n--- SIMULACIÓN FINALIZADA: {total_sim_cycles} ciclos completados. ---")
                     break
             
             time.sleep(POLLING_INTERVAL)
@@ -302,4 +311,6 @@ def main_loop():
         print("\n Finalizando Polling.")
 
 if __name__ == "__main__":
-    main_loop()
+    print("Prueva del Streaming en Thread")
+    stop_event = threading.Event()
+    main_loop(stop_event)
