@@ -5,29 +5,13 @@ import time
 import numpy as np
 import pandas as pd
 
-from utils_Streaming import OUTPUT_DIR
-from utils_zarr import leer_zattrs_de_grupo, FRAME_SIGNAL_DEMO, FRAME_SIGNAL, FORMATO_TIMESTAMP, get_track_names_simplified, escribir_prediccion, ALGORITMOS_VISIBLES
-from check_availability import check_availability
-
-#from Algorithms.blood_pressure_variability import BloodPressureVariability 
-from Algorithms.cardiac_output import CardiacOutput
-from Algorithms.cardiac_power_output import CardiacPowerOutput
-from Algorithms.driving_pressure import DrivingPressure
-from Algorithms.dynamic_compliance import DynamicCompliance
-from Algorithms.effective_arterial_elastance import EffectiveArterialElastance
-#from Algorithms.heart_rate_variability import HeartRateVariability 
-from Algorithms.rox_index import RoxIndex
-from Algorithms.shock_index import ShockIndex
-from Algorithms.systemic_vascular_resistance import SystemicVascularResistance
-from Algorithms.temp_comparison import TempComparison
+from Streaming.utils_Streaming import OUTPUT_DIR
+from Zarr.utils_zarr_corrected import STORE_PATH, leer_zattrs_de_grupo, FRAME_SIGNAL_DEMO, FRAME_SIGNAL, FORMATO_TIMESTAMP, get_track_names_simplified, escribir_prediccion, ALGORITMOS_VISIBLES
+from Algorithms.check_availability import check_availability
 
 DEMO = False
 
-ZARR_PATH = os.path.join(OUTPUT_DIR, "session_data.zarr") # Ruta al archivo Zarr de ejemplo
-
-def monitorizar_actualizacion_recursivo(
-    diferencia_anterior_segundos: float = 10000
-) -> bool:
+def monitorizar_actualizacion_recursivo(diferencia_anterior_segundos: float = 10000) -> bool:
     """
     Sondea de forma recursiva una pista y ajusta el intervalo de espera.
 
@@ -40,7 +24,7 @@ def monitorizar_actualizacion_recursivo(
     """
     try:
         # Obtener y convertir el timestamp
-        metadatos = leer_zattrs_de_grupo(ZARR_PATH, "")
+        metadatos = leer_zattrs_de_grupo(STORE_PATH, "")
         last_updated_str = metadatos.get('last_updated')
 
         if not last_updated_str:
@@ -94,17 +78,13 @@ def monitorizar_actualizacion_recursivo(
     
 
 
-def leer_ultimas_muestras_zarr(
-    zarr_path: str, 
-    sample: str, 
-    last_samples: int
-) -> pd.DataFrame:
+def leer_ultimas_muestras_zarr(zarr_path: str, sample: str, last_samples: int) -> pd.DataFrame:
     """
     Recupera las últimas 'last_samples' muestras (time_ms y value) de una pista
-    específica dentro del contenedor Zarr y las devuelve como un DataFrame.
+    específica dentro del Zarr y las devuelve como un DataFrame.
 
     Args:
-        zarr_path: La ruta completa al archivo .zarr (el contenedor raíz).
+        zarr_path: La ruta completa al archivo .zarr (el path del root).
         track: El nombre de la pista (ej. "signals/Intelliuve/ECG_HR").
         last_samples: El número N de muestras a recuperar desde el final del array.
 
@@ -137,20 +117,20 @@ def leer_ultimas_muestras_zarr(
         ds_time = grp["time_ms"]
         ds_val = grp["value"]
         
-        # 1. Determinar la longitud total de la pista
+        # Determinar la longitud total de la pista
         total_samples = ds_time.shape[0]
         
         if total_samples == 0:
             return empty_df
             
-        # 2. Calcular el índice de inicio para el slicing
+        # Calcular el índice de inicio para el slicing
         start_index = max(0, total_samples - last_samples)
         
-        # 3. Aplicar el slicing para leer las N últimas muestras
+        # Aplicar el slicing para leer las N últimas muestras
         time_slice = ds_time[start_index:]
         value_slice = ds_val[start_index:]
         
-        # 4. Crear el DataFrame
+        # Crear el DataFrame
         df = pd.DataFrame({
             'time_ms': time_slice,
             'value': value_slice
@@ -166,18 +146,15 @@ def leer_ultimas_muestras_zarr(
         return empty_df
 
 
-# Ejemplo de uso de la función recursiva
 def main_to_loop():
     try:
-        # traks_a_monitorizar = ["ECG", "NIBP_DBP", "SPO2_SAT"] # Ejemplo de tracks 
-
         print(f"--- Iniciando Monitoreo Recursivo para los Tracks ---")
 
-        if monitorizar_actualizacion_recursivo():
+        if monitorizar_actualizacion_recursivo(): # Esto es un await de toda la vida
             print("\n¡ACTUALIZACIÓN DETECTADA !")
             
-            metadatos_general = leer_zattrs_de_grupo(ZARR_PATH, "")
-            tracks = get_track_names_simplified(ZARR_PATH)
+            metadatos_general = leer_zattrs_de_grupo(STORE_PATH, "") # Leer el .zattrs del root
+            tracks = get_track_names_simplified(STORE_PATH) # Obtener nombre de variables del Zarr (sean actualizados o no, aun no podemos distingirlos)
 
             tracks_updated = []
             dataframes = {}
@@ -188,52 +165,69 @@ def main_to_loop():
                 Frame = FRAME_SIGNAL
             
             for track in tracks:
-                metadatos_track = leer_zattrs_de_grupo(ZARR_PATH, Frame + track)
+                metadatos_track = leer_zattrs_de_grupo(STORE_PATH, Frame + track) # Leer el .zattrs de la varible concreta
                 if metadatos_track is not None:
-                    if metadatos_track.get("last_updated") == metadatos_general.get("last_updated"):
+                    if metadatos_track.get("last_updated") == metadatos_general.get("last_updated"): # Comparar la ultima actualizacion, para saber si se ha actualizado la variable o no 
                         print(f"   - La track '{track}' fue actualizada.")
                         print(f"        - Ultima actualización contiene datos de {metadatos_track.get('last_update_secs')} segundos que se representan en {metadatos_track.get('last_update_samples')} samples")
-                        sample = Frame + track
-                        df_track = leer_ultimas_muestras_zarr(ZARR_PATH, sample, metadatos_track.get('last_update_samples'))
-                        dataframes[sample.removeprefix("signals/")] = df_track
+                        sample = Frame + track # Juntar el path completo del track dentro del zarr
+                        df_track = leer_ultimas_muestras_zarr(STORE_PATH, sample, metadatos_track.get('last_update_samples')) # Leer las ultimas muestras del zarr
+                        dataframes[sample.removeprefix("signals/")] = df_track # Guardar el dataframe en un diccionario (Lista de dataframes), quitando el prefijo "signals/"
                         print(f"        - Se guarda el dataframe en la lista.")
-                        tracks_updated.append(track)
+                        tracks_updated.append(track) # Guardar el nombre de la variable actualizada
                     else:
                         print(f"   - La track '{track}' NO fue actualizada.")
                     
             print(f" - Todos los dataframes actualizados") 
             print(f" Lista de variables recogidas: {tracks_updated}")
-            list_available = check_availability(tracks_updated)
+            list_available = check_availability('Intellivue/' + tracks_updated) # Comprobar que algoritmos se pueden calcular con las variables actualizadas
             print(f" Algoritmos que se puedan calcular: {list_available}")
             
             results = {}
 
-# Falten per importar: La llibreria dels BPV i HRV (falta la llibreria aquella, ecgdetectors)
+# Falten per importar: La llibreria dels BPV i HRV (falta la llibreria aquella, ecgdetectors) i icp models (adaptacio zarr)
 
-            for algoritme in list_available:
+            for algoritme in list_available: # Por cada algoritmo disponible, importarlo i calcularlo
                 match algoritme:
-                    case 'Shock Index':
-                        results['Shock Index'] = ShockIndex(dataframes).values
+                    case 'BRS':
+                        from Algorithms.baroreflex_sensitivity import BaroreflexSensitivity
+                        results['BRS'] = BaroreflexSensitivity(dataframes).values
+                    # case 'Blood Pressure Variability':
+                    #     from Algorithms.blood_pressure_variability import BloodPressureVariability 
+                    #     results['Blood Pressure Variability'] = BloodPressureVariability(dataframes).values
+                    case 'Cardiac Output':
+                        from Algorithms.cardiac_output import CardiacOutput
+                        results['Cardiac Output'] = CardiacOutput(dataframes).values
+                    case 'Cardiac Power Output':
+                        from Algorithms.cardiac_power_output import CardiacPowerOutput
+                        results['Cardiac Power Output'] = CardiacPowerOutput(dataframes).values
                     case 'Driving Pressure':
+                        from Algorithms.driving_pressure import DrivingPressure
                         results['Driving Pressure'] = DrivingPressure(dataframes).values
                     case 'Dynamic Compliance':
+                        from Algorithms.dynamic_compliance import DynamicCompliance
                         results['Dynamic Compliance'] = DynamicCompliance(dataframes).values
-                    case 'ROX Index':
-                        results['ROX Index'] = RoxIndex(dataframes).values
-                    case 'Temp Comparison':
-                        results['Temp Comparison'] = TempComparison(dataframes).values
-                    case 'Cardiac Output':
-                        results['Cardiac Output'] = CardiacOutput(dataframes).values
-                    case 'Systemic Vascular Resistance':
-                        results['Systemic Vascular Resistance'] = SystemicVascularResistance(dataframes).values
-                    case 'Cardiac Power Output':
-                        results['Cardiac Power Output'] = CardiacPowerOutput(dataframes).values
-                    case 'Effective Arterial Elastance':
+                    case 'Effective Arterial Elastance':   
+                        from Algorithms.effective_arterial_elastance import EffectiveArterialElastance
                         results['Effective Arterial Elastance'] = EffectiveArterialElastance(dataframes).values
-                    # case 'Blood Pressure Variability':
-                    #     results['Blood Pressure Variability'] = BloodPressureVariability(dataframes).values
                     # case 'Heart Rate Variability':
+                    #     from Algorithms.heart_rate_variability import HeartRateVariability 
                     #     results['Heart Rate Variability'] = HeartRateVariability(dataframes).values
+                    case 'RSA':
+                        from Algorithms.respiratory_sinus_arrhythmia import RespiratorySinusArrhythmia
+                        results['RSA'] = RespiratorySinusArrhythmia(dataframes).values
+                    case 'ROX Index':
+                        from Algorithms.rox_index import RoxIndex
+                        results['ROX Index'] = RoxIndex(dataframes).values
+                    case 'Shock Index':
+                        from Algorithms.shock_index import ShockIndex
+                        results['Shock Index'] = ShockIndex(dataframes).values
+                    case 'Systemic Vascular Resistance':
+                        from Algorithms.systemic_vascular_resistance import SystemicVascularResistance
+                        results['Systemic Vascular Resistance'] = SystemicVascularResistance(dataframes).values
+                    case 'Temp Comparison':
+                        from Algorithms.temp_comparison import TempComparison
+                        results['Temp Comparison'] = TempComparison(dataframes).values
                     case _:
                         print(f"Advertencia: Algoritmo '{algoritme}' no encontrado")
                         pass
@@ -245,20 +239,20 @@ def main_to_loop():
 
 if __name__ == "__main__":
     try:
-        while True:
-            results = main_to_loop()
+        while True: # Esto se deberia hacer en el main, para poder devolver los resultados al front
+            results = main_to_loop() # Esperar a que se detecte una actualización y obtener los resultados de los algoritmos.
 
             for Nombre_algoritmo, df_result in results.items():
-                value_columns = [col for col in df_result.columns if col != 'Timestamp']
+                value_columns = [col for col in df_result.columns if col != 'Timestamp' and col != 'Time_ini_ms' and col != 'Time_fin_ms']
                 time_ms_array = df_result['Timestamp'].values
                 
                 visible = False # Bool que dicta si se puede enseñar la función
-                if Nombre_algoritmo in ALGORITMOS_VISIBLES:
+                if Nombre_algoritmo in ALGORITMOS_VISIBLES: # Depende de si aparece en la lista de algoritmos visibles (Zarr/utils_zarr_corrected.py)
                     visible = True
                 
                 for track_name in value_columns:
                     value_array = df_result[track_name].values
-                    escribir_prediccion(ZARR_PATH, track_name, time_ms_array, value_array, modelo_info={"model": Nombre_algoritmo, "visibilidad": visible})
+                    escribir_prediccion(STORE_PATH, track_name, time_ms_array, value_array, modelo_info={"model": Nombre_algoritmo, "visibilidad": visible})
 
     except KeyboardInterrupt:
         print("\n--- Monitoreo detenido por el usuario. ---")
