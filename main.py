@@ -64,29 +64,44 @@ def seleccionar_modo_gui():
     return selection['mode']
 
 def iniciar_streaming_en_thread():
-    
-    results = main_to_loop() # Funcion principal del zarr_to_algorithms.py
-    
-    for NombreAlgoritmo, df_result in results.items():
-        value_columns = [col for col in df_result.columns if col != 'Timestamp' and col != 'Time_ini_ms' and col != 'Time_fin_ms']
-        if 'Timestamp' in df_result.columns:
-            time_ms_array = df_result['Timestamp'].values
-            time_count = 1
-        else:
-            time_ini_ms_array = df_result['Time_ini_ms'].values
-            time_fin_ms_array = df_result['Time_fin_ms'].values
-            time_count = 2
-        
-        visible = NombreAlgoritmo in ALGORITMOS_VISIBLES
+    import threading
 
-        for track_name in value_columns:
-            value_array = df_result[track_name].values
-            if time_count == 1:
-                escribir_prediccion(STORE_PATH, track_name, time_ms_array, value_array, model_info = {"model": NombreAlgoritmo, "visibilidad": visible})
-            else:
-                escribir_prediccion(STORE_PATH, track_name, time_ini_ms_array, value_array, model_info = {"model": NombreAlgoritmo, "visibilidad": visible}, timestamps_fin_ms=time_fin_ms_array)
+    stop_event = threading.Event()
+    streaming_thread = threading.Thread(target = main_loop, args=(stop_event,), name = "StreamingThread")
 
-    return results
+    print("-- Iniciando Streaming (Streaming_to_zarr.py) en thread separado --")
+    streaming_thread.start()
+
+    try:
+        # El programa principal
+        print("-- Iniciando bucle (zarr_to_algorithms.py) en Hilo Principal --")
+
+        while True:
+            results = main_to_loop() # Funcion principal del zarr_to_algorithms.py
+            
+            for NombreAlgoritmo, df_result in results.items():
+                value_columns = [col for col in df_result.columns if col != 'Timestamp' and col != 'Time_ini_ms' and col != 'Time_fin_ms']
+                if 'Timestamp' in df_result.columns:
+                    time_ms_array = df_result['Timestamp'].values
+                    time_count = 1
+                else:
+                    time_ini_ms_array = df_result['Time_ini_ms'].values
+                    time_fin_ms_array = df_result['Time_fin_ms'].values
+                    time_count = 2
+                
+                visible = NombreAlgoritmo in ALGORITMOS_VISIBLES
+
+                for track_name in value_columns:
+                    value_array = df_result[track_name].values
+                    if time_count == 1:
+                        escribir_prediccion(STORE_PATH, track_name, time_ms_array, value_array, model_info = {"model": NombreAlgoritmo, "visibilidad": visible})
+                    else:
+                        escribir_prediccion(STORE_PATH, track_name, time_ini_ms_array, value_array, model_info = {"model": NombreAlgoritmo, "visibilidad": visible}, timestamps_fin_ms = time_fin_ms_array)
+    except KeyboardInterrupt:
+        print('\nInterrupción de usuario recibida. Deteniendo Streaming...')
+        stop_event.set()
+        streaming_thread.join()
+        print('Streaming detenido. Programa finalizado.')
 
 def main():
     modo = seleccionar_modo_gui()
@@ -145,27 +160,8 @@ def main():
             #Pendiente exportar los resultados a csv o a un vitalfile o hacer algo con ellos
         
         elif modo == "online":
-            try: 
-                print("Modo online activado. Iniciando monitoreo y ejecución de algoritmos...")
-                import threading
-
-                stop_event = threading.Event()
-                streaming_thread = threading.Thread(target = main_loop, args=(stop_event,), name = "StreamingThread")
-
-                print("-- Iniciando Streaming (Streaming_to_zarr.py) en thread separado --")
-                streaming_thread.start()
-
-                print("-- Iniciando bucle (zarr_to_algorithms.py) en Hilo Principal --")
-
-                while True:
-                    results = iniciar_streaming_en_thread() # Results es la variable que contiene un dataframe con todos los calculos hechos por algoritmos en el burst de datos (20-30 secs)
-                    # Aqui hacemos la actualizacion al front
-
-            except KeyboardInterrupt:
-                print('\nInterrupción de usuario recibida. Deteniendo Streaming...')
-                stop_event.set()
-                streaming_thread.join()
-                print('Streaming detenido. Programa finalizado.')
+            print("Modo online activado. Iniciando monitoreo y ejecución de algoritmos...")
+            iniciar_streaming_en_thread()
         else:
             print("Modo no reconocido. Saliendo.")
     except KeyboardInterrupt:
