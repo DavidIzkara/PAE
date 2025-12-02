@@ -591,7 +591,7 @@ def escribir_prediccion(
     timestamps_ms: np.ndarray,
     values: np.ndarray,
     modelo_info: Optional[Dict],
-    timestamps_fin_ms: np.ndarray = None
+    timestamps_fin_ms: Optional[np.ndarray]
 ) -> None:
     """
     Escribe predicciones en Zarr bajo la estructura:
