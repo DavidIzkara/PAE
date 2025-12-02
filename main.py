@@ -96,7 +96,7 @@ def iniciar_streaming_en_thread():
                     if time_count == 1:
                         escribir_prediccion(STORE_PATH, track_name, time_ms_array, value_array, model_info = {"model": NombreAlgoritmo, "visibilidad": visible})
                     else:
-                        escribir_prediccion(STORE_PATH, track_name, time_ini_ms_array, value_array, model_info = {"model": NombreAlgoritmo, "visibilidad": visible}, time_fin_ms_array)
+                        escribir_prediccion(STORE_PATH, track_name, time_ini_ms_array, value_array, model_info = {"model": NombreAlgoritmo, "visibilidad": visible}, timestamps_fin_ms = time_fin_ms_array)
     except KeyboardInterrupt:
         print('\nInterrupción de usuario recibida. Deteniendo Streaming...')
         stop_event.set()
