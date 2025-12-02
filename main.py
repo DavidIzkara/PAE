@@ -158,9 +158,9 @@ def main():
                 print("-- Iniciando bucle (zarr_to_algorithms.py) en Hilo Principal --")
 
                 while True:
-                    results = iniciar_streaming_en_thread() # Results es la variable que contiene un dataframe con todos los calculos hechos por algoritmos en el burst de datos (20-30 secs)
+                    results = iniciar_streaming_en_thread(seleccionados) # Results es la variable que contiene un dataframe con todos los calculos hechos por algoritmos en el burst de datos (20-30 secs)
                     # Aqui hacemos la actualizacion al front
-
+                    #correrá los seleccionados en la interfaz grafica guardados en 'seleccionados'
             except KeyboardInterrupt:
                 print('\nInterrupción de usuario recibida. Deteniendo Streaming...')
                 stop_event.set()
