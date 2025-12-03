@@ -7,7 +7,6 @@ import pandas as pd
 
 from Streaming.utils_Streaming import OUTPUT_DIR
 from Zarr.utils_zarr_corrected import STORE_PATH, leer_zattrs_de_grupo, FRAME_SIGNAL_DEMO, FRAME_SIGNAL, FORMATO_TIMESTAMP, get_track_names_simplified, escribir_prediccion, ALGORITMOS_VISIBLES
-from Algorithms.check_availability import check_availability
 
 DEMO = False
 
@@ -146,7 +145,7 @@ def leer_ultimas_muestras_zarr(zarr_path: str, sample: str, last_samples: int) -
         return empty_df
 
 
-def main_to_loop():
+def main_to_loop(algoritmes_escollits):
     try:
         print(f"--- Iniciando Monitoreo Recursivo para los Tracks ---")
 
@@ -180,14 +179,14 @@ def main_to_loop():
                     
             print(f" - Todos los dataframes actualizados") 
             print(f" Lista de variables recogidas: {tracks_updated}")
-            list_available = check_availability('Intellivue/' + tracks_updated) # Comprobar que algoritmos se pueden calcular con las variables actualizadas
-            print(f" Algoritmos que se puedan calcular: {list_available}")
+            # list_available = check_availability('Intellivue/' + tracks_updated) # Comprobar que algoritmos se pueden calcular con las variables actualizadas
+            print(f" Algoritmos que se puedan calcular: {algoritmes_escollits}")
             
             results = {}
 
 # Falten per importar: La llibreria dels BPV i HRV (falta la llibreria aquella, ecgdetectors) i icp models (adaptacio zarr)
 
-            for algoritme in list_available: # Por cada algoritmo disponible, importarlo i calcularlo
+            for algoritme in algoritmes_escollits: # Por cada algoritmo disponible, importarlo i calcularlo
                 match algoritme:
                     case 'BRS':
                         from Algorithms.baroreflex_sensitivity import BaroreflexSensitivity
