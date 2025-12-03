@@ -63,9 +63,9 @@ def seleccionar_modo_gui():
 
     return selection['mode']
 
-def iniciar_streaming_en_thread():
+def iniciar_streaming_en_thread(algoritmes_escollits):
     
-    results = main_to_loop() # Funcion principal del zarr_to_algorithms.py
+    results = main_to_loop(algoritmes_escollits) # Funcion principal del zarr_to_algorithms.py
     
     for NombreAlgoritmo, df_result in results.items():
         value_columns = [col for col in df_result.columns if col != 'Timestamp' and col != 'Time_ini_ms' and col != 'Time_fin_ms']
@@ -158,9 +158,9 @@ def main():
                 print("-- Iniciando bucle (zarr_to_algorithms.py) en Hilo Principal --")
 
                 while True:
-                    results = iniciar_streaming_en_thread(seleccionados) # Results es la variable que contiene un dataframe con todos los calculos hechos por algoritmos en el burst de datos (20-30 secs)
+                    results = iniciar_streaming_en_thread(algoritmes_escollits) # Results es la variable que contiene un dataframe con todos los calculos hechos por algoritmos en el burst de datos (20-30 secs)
                     # Aqui hacemos la actualizacion al front
-                    #correrá los seleccionados en la interfaz grafica guardados en 'seleccionados'
+
             except KeyboardInterrupt:
                 print('\nInterrupción de usuario recibida. Deteniendo Streaming...')
                 stop_event.set()
