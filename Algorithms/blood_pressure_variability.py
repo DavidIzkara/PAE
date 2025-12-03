@@ -1,92 +1,125 @@
-from ecgdetectors import Detectors
-import vitaldb
+from vitaldb import VitalFile
 import numpy as np
+import pandas as pd
+
+from compute_rr import compute_rr
 
 SAMPLING_RATE = 500  # Hz
-
-def funcion_rr(hr):
-
-    ecg_signal = np.array(hr, dtype=np.float64)
-    ecg_signal = ecg_signal[~np.isnan(ecg_signal)]
-
-    # Generar el vector de tiempos
-    times = np.arange(len(ecg_signal)) / SAMPLING_RATE
-
-    # Detector Pan-Tompkins
-    
-    detectors = Detectors(SAMPLING_RATE) # type: ignore
-    r_peaks_ind = detectors.pan_tompkins_detector(ecg_signal)
-
-    # Calcula los intervalos R-R (segundos)
-    r_peaks_times = times[r_peaks_ind]
-    return np.diff(r_peaks_times)
-
-#Standard Deviation
-def std(values):
-    n = len(values)
-    mean = sum(values) / n
-    variance = sum((x - mean) ** 2 for x in values) / n
-    return variance ** 0.5 
-
-#Coefficient of Variation
-def cv(values):
-    mean = sum(values) / len(values)
-    return std(values) / mean if mean != 0 else float('nan')
-
-#Average Real Variability
-def arv(values):
-    arv_sum = sum(abs(values[i] - values[i-1]) for i in range(1, len(values)))
-    return arv_sum / (len(values) - 1) if len(values) > 1 else float('nan')
-
-#Standard Deviation of RR intervals
-def sdnn(values):
-    return std(values)
-
-#Root Mean Square of Successive Differences
-def rmssd(values):
-
-    n = len(values)
-    if n < 2:
-        return float('nan')
-    squared_diffs = [(values[i] - values[i-1]) ** 2 for i in range(1, n)]
-    mean_squared_diff = sum(squared_diffs) / (n - 1)
-    return mean_squared_diff ** 0.5
+WINDOW_SIZE_RR = 5  # Number of RR intervals in each window 
+# Window size set to 5 intervals, which averages to 5 seconds for a heart rate of 60 bpm and works for both rr and abp metrics.
 
 class BloodPressureVariability:
-    def __init__(self, vital_path):
-            
-        vf = vitaldb.VitalFile(vital_path)
+
+    def __init__(self, data):
+    
+        if isinstance(data, VitalFile):
+            self._from_vf(data)
+        else: 
+            self._from_df(data)
+
+    def _from_vf(self, vf: VitalFile):
+
         available_tracks = vf.get_track_names()
 
-        # Try to find heart rate wave
+        hr_track = next(
+            (t for t in available_tracks if 'Intellivue/ECG_II' in t),
+            next((t for t in available_tracks if 'Intellivue/ECG_III' in t),
+                 next((t for t in available_tracks if 'Intellivue/ECG_V' in t),
+                      next((t for t in available_tracks if 'Intellivue/ECG_I' in t), None))))
+
+        #Compute RR intervals        
+        hr = vf.to_pandas(track_names=hr_track, interval=1/SAMPLING_RATE, return_timestamp=True)
+        rr = compute_rr(hr, hr_track)
+
+        #Construct ABP dataframe and drop NaN values
+        abp_raw = vf.to_numpy('Intellivue/ABP', interval=1, return_timestamp=True)
+        abp = pd.DataFrame({ 'Intellivue/ABP': abp_raw[:,1], 'Time': abp_raw[:,0] })
+        abp = abp.dropna()
+
+        # Calculate HRV metrics
+        metrics = self.compute_metrics(rr, abp, window=WINDOW_SIZE_RR)
+        self.values = pd.DataFrame({'Time_ini_ms': metrics["Time_ini_ms"],
+                                    'Time_fin_ms': metrics["Time_fin_ms"],
+                                    'STD': metrics["std"],
+                                    'CV': metrics["cv"],
+                                    'ARV': metrics["arv"],
+                                    'SDNN': metrics["sdnn"],
+                                    'RMSSD': metrics["rmssd"]})
+        
+        return self.values
+    
+    def _from_df(self, list_dataframe: list[pd.DataFrame]):
+
+        available_tracks = list_dataframe.keys() # type: ignore
+
         hr_track = next(
             (t for t in available_tracks if 'Intellivue/ECG_I' in t), 
             next((t for t in available_tracks if 'Intellivue/ECG_II' in t),     
-                    next((t for t in available_tracks if 'Intellivue/ECG_III' in t), None))) 
-
-        hr = vf.to_pandas(track_names=hr_track, interval=1/SAMPLING_RATE)
-        abp_raw = vf.to_numpy('Intellivue/ABP', interval=1.0)
-        self.abp_values = np.asarray(abp_raw, dtype=float)
+                 next((t for t in available_tracks if 'Intellivue/ECG_III' in t), 
+                      next((t for t in available_tracks if 'Intellivue/ECG_V' in t), None)))) 
         
-        rr = funcion_rr(hr)
+        # Compute RR intervals
+        hr_raw = list_dataframe[hr_track]  # type: ignore
+        hr = pd.DataFrame({hr_track:hr_raw["value"], 'Time': hr_raw["time_ms"] })
+        rr = compute_rr(hr, hr_track)
 
-        # compute scalar metrics (cast to Python floats so savetxt gets homogeneous shape)
-        metrics_list = [
-            float(std(self.abp_values)) if self.abp_values.size > 0 else float('nan'),
-            float(cv(self.abp_values)) if self.abp_values.size > 0 else float('nan'),
-            float(arv(self.abp_values)) if self.abp_values.size > 1 else float('nan'),
-            float(sdnn(rr)) if rr.size > 0 else float('nan'),
-            float(rmssd(rr)) if rr.size > 1 else float('nan'),
-        ]
+        # Construct ABP dataframe and drop NaN values
+        abp_track = next((t for t in available_tracks if 'Intellivue/ABP' in t), None)
+        abp_raw = list_dataframe[abp_track]  # type: ignore
+        abp = pd.DataFrame({abp_track:abp_raw["value"], 'Time': abp_raw["time_ms"]})
+        abp = abp.rename(columns={abp_track: 'Intellivue/ABP'}).dropna()
 
-        self.values = metrics_list
-
-        # Save as a single-row CSV (5 columns) with 3 significant figures
-        np.savetxt('systolic_values.csv', np.asarray(self.values, dtype=float).reshape(1, -1), delimiter=',', fmt='%.3g')
+        # Calculate HRV metrics
+        metrics = self.compute_metrics(rr, abp, window=WINDOW_SIZE_RR)
+        self.values = pd.DataFrame({'Time_ini_ms': metrics["Time_ini_ms"],
+                                    'Time_fin_ms': metrics["Time_fin_ms"],
+                                    'STD': metrics["std"],
+                                    'CV': metrics["cv"],
+                                    'ARV': metrics["arv"],
+                                    'SDNN': metrics["sdnn"],
+                                    'RMSSD': metrics["rmssd"]})
         
-if __name__ == "__main__":
-    vital_path = "n5j8vrrsb_250630_130506.vital"
-    bpv = BloodPressureVariability(vital_path)
-    # Print metrics with 3 significant figures
-    formatted = ', '.join(f"{v:.3g}" for v in bpv.values)
-    print("metrics (std, cv, arv, sdnn, rmssd):", formatted)
+        return self.values
+
+    def compute_metrics(self, rr_df: pd.DataFrame, abp_df: pd.DataFrame, window=WINDOW_SIZE_RR):
+
+        # Extract ABP values and times
+        abp_vals = abp_df["Intellivue/ABP"].values
+        abp_time = abp_df["Time"].values
+
+        # Extract RR intervals and times
+        rr = rr_df['rr'].values
+        ts_ini = rr_df["Time_ini_ms"].values
+        ts_fin = rr_df["Time_fin_ms"].values
+
+        n = len(rr)
+        results = []
+
+        for i in range(n - window + 1):
+            
+            #Compute RR metrics using rolling window
+            w = rr[i:i+window]
+            sdnn = np.std(w, ddof=1)  # type: ignore
+            rmssd = np.sqrt(np.mean(np.square(np.diff(w))))  # type: ignore
+
+            # Get window start and end times
+            win_ini = ts_ini[i]
+            win_fin = ts_fin[i + window - 1]
+
+            # Get ABP values within the RR window
+            mask_abp = (abp_time >= win_ini) & (abp_time <= win_fin)
+            w = abp_vals[mask_abp]
+
+            # Compute ABP metrics if enough data points are available
+            if len(w) < 2:
+                std = np.nan
+                cv = np.nan
+                arv = np.nan
+            else:
+                std = np.std(w, ddof=1)
+                cv = std / np.mean(w) if np.mean(w) != 0 else float('nan')
+                arv = np.mean(np.abs(np.diff(w))) 
+
+            results.append([win_ini, win_fin, std, cv, arv, sdnn, rmssd])
+
+        return pd.DataFrame(results, columns=["Time_ini_ms", "Time_fin_ms", "std", "cv", "arv", "sdnn", "rmssd"])
