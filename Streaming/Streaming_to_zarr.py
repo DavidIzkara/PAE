@@ -3,8 +3,9 @@ import time
 import numpy as np
 import threading
 import random 
+from Algorithms.check_availability import check_availability
 from Zarr.utils_zarr_corrected import _DEFAULT_COMPRESSOR, STORE_PATH, safe_group, get_group_if_exists, append_1d, open_root
-from utils_Streaming import WAVE_TRACKS_FREQUENCIES, WAVE_STANDARD_RATE, obtener_vital_timestamp, obtener_directorio_del_dia, obtener_vital_mas_reciente
+from Streaming.utils_Streaming import WAVE_TRACKS_FREQUENCIES, WAVE_STANDARD_RATE, obtener_vital_timestamp, obtener_directorio_del_dia, obtener_vital_mas_reciente
 from vitaldb import VitalFile 
 
 BASE_DIR = r"C:\Users\UX636EU\OneDrive - EY\Desktop\recordings" 
@@ -52,6 +53,7 @@ def vital_to_zarr_streaming(
     
     # Copiamos el last_read_count (sera una mikyherramienta que usaremos mas tarde)
     new_last_read_counts = last_read_counts.copy() 
+    tracks_updated = []
 
     for track in available_tracks:  # Para cada variable hacer todo lo siguiente
         rate = 0.5 
@@ -168,11 +170,13 @@ def vital_to_zarr_streaming(
         grp.attrs["duration_seconds"] = ds_time.shape[0] / rate if rate > 0 else 0.0
         grp.attrs["last_update_samples"] = ts_ms.size
         
-        print(f"[{track}: {track_type} {rate:.1f} Hz] +{ts_ms.size} mostres (total={ds_time.shape[0]})")
+        #print(f"[{track}: {track_type} {rate:.1f} Hz] +{ts_ms.size} mostres (total={ds_time.shape[0]})")
         total_added_samples += int(ts_ms.size)
+        tracks_updated.append(track)
         written_tracks += 1
         written_any = True
 
+    print(f"Todas las variables actualizadas: {tracks_updated}")
     root.attrs.setdefault("schema", "v1")
     root.attrs.setdefault("created_by", "Streaming")    # Variables del .zattrs del .zarr
     root.attrs.setdefault("time_origin", "epoch1700_ms")
@@ -194,7 +198,7 @@ def verificar_y_procesar(vital_path, last_size, last_read_counts, simulated_grow
     """
 
     if PRUEVAS:
-        print("\n--- MODO PRUEVAS ACTIVADO ---")
+        print("\n--- MODO PRUEVAS ACTIVADO (Streaming_to_zarr.py) ---")
     
     if not os.path.exists(vital_path):
         print(f" Error: El archivo {os.path.basename(vital_path)} ya no existe.")
@@ -214,7 +218,7 @@ def verificar_y_procesar(vital_path, last_size, last_read_counts, simulated_grow
     
     for attemp in range(3):
         try:
-            print(f"\n--- INICIANT PROCESSAMENT ZARR AL FITXER: {STORE_PATH} ---")
+            print(f"\n--- INICIANT PROCESSAMENT ZARR AL FITXER: {STORE_PATH} (Streaming_to_zarr.py) ---")
             
             window_to_process = simulated_growth_seconds if PRUEVAS else None # En caso de no ser PRUEVAS, esto no sirve de nada
 
@@ -246,7 +250,7 @@ def verificar_y_procesar(vital_path, last_size, last_read_counts, simulated_grow
 
 # --------------------------------------------------------------------------------------
 
-def main_loop(stop_event: threading.Event):
+def main_loop(stop_event: threading.Event, algoritmos_cargados_event: threading.Event, algoritmos_disponibles: list):
     if PRUEVAS:
         directorio_dia = DIRECTORIO_PRUEVA
         vital_path = os.path.join(DIRECTORIO_PRUEVA, ARCHIVO_VITAL)
@@ -269,6 +273,12 @@ def main_loop(stop_event: threading.Event):
     print(f" Directorio de salida ZARR (Acumulativo): {STORE_PATH}")
     print(f" Iniciando Polling cada {POLLING_INTERVAL} segundos")
 
+    vf = VitalFile(vital_path)
+    lista_algoritmos = check_availability(vf.get_track_names())
+    algoritmos_disponibles.extend(lista_algoritmos)
+
+    algoritmos_cargados_event.set()
+
     last_size = -1
     last_read_counts = {} # Inicializacion de la variable
 
@@ -283,6 +293,8 @@ def main_loop(stop_event: threading.Event):
                 print(f"\n--- SIMULACIÓN ---: Leyendo bloque de {simulated_growth_seconds} segundos.")
             else:
                 simulated_growth_seconds = 0
+            
+            time.sleep(simulated_growth_seconds)
 
             current_size, last_read_counts, finished = verificar_y_procesar(
                 vital_path, 
