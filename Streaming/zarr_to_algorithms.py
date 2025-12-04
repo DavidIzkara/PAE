@@ -209,9 +209,9 @@ def main_to_loop(algoritmes_escollits):
                     case 'Effective Arterial Elastance':   
                         from Algorithms.effective_arterial_elastance import EffectiveArterialElastance
                         results['Effective Arterial Elastance'] = EffectiveArterialElastance(dataframes).values
-                    # case 'Heart Rate Variability':
-                    #     from Algorithms.heart_rate_variability import HeartRateVariability 
-                    #     results['Heart Rate Variability'] = HeartRateVariability(dataframes).values
+                    #case 'Heart Rate Variability':
+                    #    from Algorithms.heart_rate_variability import HeartRateVariability 
+                    #    results['Heart Rate Variability'] = HeartRateVariability(dataframes).values
                     case 'RSA':
                         from Algorithms.respiratory_sinus_arrhythmia import RespiratorySinusArrhythmia
                         results['RSA'] = RespiratorySinusArrhythmia(dataframes).values
