@@ -11,7 +11,7 @@ from Algorithms.check_availability import check_availability
 
 
 class RealTimeApp(tk.Tk):
-    def __init__(self):
+    def __init__(self, available_algorithms_list):
         super().__init__()
         self.title("Visualización en Tiempo Real")
         self.geometry("1650x850")
@@ -35,7 +35,7 @@ class RealTimeApp(tk.Tk):
         ]
 
         # 2) Llamar a check_availability para saber qué algoritmos se pueden calcular
-        self.available_algorithms = check_availability(example_tracks)
+        self.available_algorithms = available_algorithms_list##check_availability(example_tracks)
         # Si por lo que sea no hay ninguno, evita que los combo queden vacíos
         if not self.available_algorithms:
             self.available_algorithms = ["Sin algoritmos disponibles"]
@@ -46,6 +46,7 @@ class RealTimeApp(tk.Tk):
         selector_frame = tk.Frame(self)
         selector_frame.pack(pady=1)
 
+        self.current_selections = []
         self.selected_vars = []
         for i in range(4):
             label = ttk.Label(selector_frame, text=f"Algoritmo gráfica {i+1}:")
@@ -62,9 +63,10 @@ class RealTimeApp(tk.Tk):
             # Valor por defecto: primer algoritmo disponible
             combo.current(0)
             self.selected_vars.append(combo)
+            self.current_selections.append(combo.get())
 
-        for combo in self.selected_vars:
-            combo.bind("<<ComboboxSelected>>", lambda e: self.draw_plots())
+            combo.bind("<<ComboboxSelected>>", lambda e, index=i: self.on_combobox_change(event = e, index = index))
+            
 
         # Botón visible para volver al selector de modo sin cerrar la ventana
         btn_back = tk.Button(selector_frame, text='Volver', width=12, command=self.on_close)
@@ -89,6 +91,26 @@ class RealTimeApp(tk.Tk):
         self.refresh_loop()
         # Captura cierre de la ventana principal para parar el loop
         self.protocol("WM_DELETE_WINDOW", self.on_close)
+
+        self.quit()
+
+    def on_combobox_change(self, event, index):
+
+        current_combo = self.selected_vars[index]
+        new_value = current_combo.get()
+
+        previous_value = self.current_selections[index]
+
+        if new_value != previous_value:
+            self.current_selections[index] = new_value
+
+            print(f"✅ Combobox {index+1} cambió de '{previous_value}' a '{new_value}'.")            
+            print(f"   self.current_selections ahora es: {self.current_selections}")
+
+            self.draw_plots()
+            self.quit()
+        else:
+            print(f"⚠️ Combobox {index+1} seleccionado, pero el valor sigue siendo '{new_value}'. No se hace nada.")
 
     def draw_plots(self):
         for i in range(2):
