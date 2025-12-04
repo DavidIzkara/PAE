@@ -38,7 +38,7 @@ class ShockIndex:
 
         print("Timestamp", pre_si.head(n=5))
         #Creates the SI dataframe: Timestamp | SI_value
-        self.values = {'Timestamp': pre_si["Time"], 'SI': pre_si[hr_track] / pre_si[sys_track]} 
+        self.values = pd.DataFrame({'Timestamp': pre_si["Time"], 'SI': pre_si[hr_track] / pre_si[sys_track]})
 
 
     def _from_df(self, list_dataframe: list[pd.DataFrame]):
@@ -74,4 +74,3 @@ class ShockIndex:
 #Handles both invasive and non-invasive blood pressure by checking available tracks.
 #Requires heart rate track, tries multiple possible names for robustness.
 #Does not require any special handling of missing data as this class is only used when we have the data.
-
