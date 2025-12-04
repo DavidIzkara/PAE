@@ -6,13 +6,17 @@ from compute_rr import compute_rr
 
 class HeartRateVariability:
 
-    def __init__(self, data):
+    def __init__(self):
         self.last4_rr = []
         self.last4_ini = []
+        self.values = None
+
+    def compute(self, data):
         if isinstance(data, vitaldb.VitalFile):
             self._from_vf(data)
         else:
             self._from_df(data)
+        return self.values
 
     def _from_vf(self, vf):
         # Get all available track names in the VitalFile
@@ -30,9 +34,7 @@ class HeartRateVariability:
         rr = compute_rr(hr, hr_track)
     
         self.values = self.compute_hrv(rr)
-        #Como no está en el values es un objeto de la clase que no se podrá printear desde fuera xq 
-        #no es un pandas, en caso de hacerlo igual que el resto, con un self.values = pd.DataFrame,
-        #Funcionará igual, como no se podrá mostrar por pantalla, se dejará inhabilitado.
+
 
     def _from_df(self, list_dataframe: list[pd.DataFrame]):
         #Se recibe una lista de dataframes
@@ -51,9 +53,7 @@ class HeartRateVariability:
         rr = compute_rr(hr, hr_track)
         
         self.values = self.compute_hrv(rr)
-        #Como no está en el values es un objeto de la clase que no se podrá printear desde fuera xq 
-        #no es un pandas, en caso de hacerlo igual que el resto, con un self.values = pd.DataFrame,
-        #Funcionará igual, como no se podrá mostrar por pantalla, se dejará inhabilitado.
+
 
     def compute_hrv(self, rr_df, window = 5, threshold=50):
         rr = rr_df['rr'].values
