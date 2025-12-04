@@ -5,16 +5,17 @@ import pandas as pd
 from compute_rr import compute_rr
 
 SAMPLING_RATE = 500  # Hz
-WINDOW_SIZE_RR = 5  # Number of RR intervals in each window 
-# Window size set to 5 intervals, which averages to 5 seconds for a heart rate of 60 bpm and works for both rr and abp metrics.
+WINDOW_SIZE_RR = 5  # Number of RR intervals in each window
+
+#* Window size set to 5 intervals, which averages to 5 seconds for a heart rate of 60 bpm and works for both rr and abp metrics.
 
 class BloodPressureVariability:
 
     def __init__(self, data):
-    
+
         if isinstance(data, VitalFile):
             self._from_vf(data)
-        else: 
+        else:
             self._from_df(data)
 
     def _from_vf(self, vf: VitalFile):
@@ -27,7 +28,7 @@ class BloodPressureVariability:
                  next((t for t in available_tracks if 'Intellivue/ECG_V' in t),
                       next((t for t in available_tracks if 'Intellivue/ECG_I' in t), None))))
 
-        #Compute RR intervals        
+        #Compute RR intervals
         hr = vf.to_pandas(track_names=hr_track, interval=1/SAMPLING_RATE, return_timestamp=True)
         rr = compute_rr(hr, hr_track)
 
@@ -45,21 +46,20 @@ class BloodPressureVariability:
                                     'ARV': metrics["arv"],
                                     'SDNN': metrics["sdnn"],
                                     'RMSSD': metrics["rmssd"]})
-        
+
         return self.values
-    
+
     def _from_df(self, list_dataframe: list[pd.DataFrame]):
 
         available_tracks = list_dataframe.keys() # type: ignore
-
         hr_track = next(
-            (t for t in available_tracks if 'Intellivue/ECG_I' in t), 
-            next((t for t in available_tracks if 'Intellivue/ECG_II' in t),     
-                 next((t for t in available_tracks if 'Intellivue/ECG_III' in t), 
-                      next((t for t in available_tracks if 'Intellivue/ECG_V' in t), None)))) 
-        
+            (t for t in available_tracks if 'Intellivue/ECG_I' in t),
+            next((t for t in available_tracks if 'Intellivue/ECG_II' in t),
+                 next((t for t in available_tracks if 'Intellivue/ECG_III' in t),
+                      next((t for t in available_tracks if 'Intellivue/ECG_V' in t), None))))
+
         # Compute RR intervals
-        hr_raw = list_dataframe[hr_track]  # type: ignore
+        hr_raw = list_dataframe[hr_track] # type: ignore
         hr = pd.DataFrame({hr_track:hr_raw["value"], 'Time': hr_raw["time_ms"] })
         rr = compute_rr(hr, hr_track)
 
@@ -78,7 +78,7 @@ class BloodPressureVariability:
                                     'ARV': metrics["arv"],
                                     'SDNN': metrics["sdnn"],
                                     'RMSSD': metrics["rmssd"]})
-        
+
         return self.values
 
     def compute_metrics(self, rr_df: pd.DataFrame, abp_df: pd.DataFrame, window=WINDOW_SIZE_RR):
@@ -96,10 +96,10 @@ class BloodPressureVariability:
         results = []
 
         for i in range(n - window + 1):
-            
+
             #Compute RR metrics using rolling window
             w = rr[i:i+window]
-            sdnn = np.std(w, ddof=1)  # type: ignore
+            sdnn = np.std(w, ddof=1) #type: ignore
             rmssd = np.sqrt(np.mean(np.square(np.diff(w))))  # type: ignore
 
             # Get window start and end times
@@ -117,8 +117,8 @@ class BloodPressureVariability:
                 arv = np.nan
             else:
                 std = np.std(w, ddof=1)
-                cv = std / np.mean(w) if np.mean(w) != 0 else float('nan')
-                arv = np.mean(np.abs(np.diff(w))) 
+                cv = std / np.mean(w)
+                arv = np.mean(np.abs(np.diff(w)))
 
             results.append([win_ini, win_fin, std, cv, arv, sdnn, rmssd])
 
