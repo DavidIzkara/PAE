@@ -7,7 +7,8 @@ from compute_rr import compute_rr
 class HeartRateVariability:
 
     def __init__(self, data):
-
+        self.last4_rr = []
+        self.last4_ini = []
         if isinstance(data, vitaldb.VitalFile):
             self._from_vf(data)
         else:
@@ -27,15 +28,8 @@ class HeartRateVariability:
         # Convert the signals to NumPy arrays
         hr = vf.to_pandas(track_names=hr_track, interval=1/500, return_timestamp=True)
         rr = compute_rr(hr, hr_track)
-
-        # Calculate HRV metrics
-        sdnn = self.compute_sdnn(rr)
-        rmssd = self.compute_rmssd(rr)
-        pnn50 = self.compute_pnn50(rr)
-        
-        values = sdnn.merge(rmssd, on = "Time_ini_ms").merge(pnn50, on = "Time_ini_ms")
     
-        self.values = pd.DataFrame({'Time_ini_ms': values["Time_ini_ms"], 'Time_fin_ms': values["Time_fin_ms"], 'SDNN': values["sdnn"], 'RMSSD': values["rmssd"], 'PNN50': values["pnn50"]})
+        self.values = self.compute_hrv(rr)
         #Como no está en el values es un objeto de la clase que no se podrá printear desde fuera xq 
         #no es un pandas, en caso de hacerlo igual que el resto, con un self.values = pd.DataFrame,
         #Funcionará igual, como no se podrá mostrar por pantalla, se dejará inhabilitado.
@@ -54,21 +48,14 @@ class HeartRateVariability:
         
         hr_raw = list_dataframe[hr_track]
         hr = pd.DataFrame({hr_track:hr_raw["value"], 'Time': hr_raw["time_ms"] })
-        print("Zarr hr",hr)
         rr = compute_rr(hr, hr_track)
-
-        # Calculate HRV metrics
-        sdnn = self.compute_sdnn(rr)
-        rmssd = self.compute_rmssd(rr)
-        pnn50 = self.compute_pnn50(rr)
         
-        values = sdnn.merge(rmssd, on = "Time_ini_ms").merge(pnn50, on = "Time_ini_ms")
-        self.values = pd.DataFrame({'Time_ini_ms': values["Time_ini_ms"], 'Time_fin_ms': values["Time_fin_ms"], 'SDNN': values["sdnn"], 'RMSSD': values["rmssd"], 'PNN50': values["pnn50"]})
+        self.values = self.compute_hrv(rr)
         #Como no está en el values es un objeto de la clase que no se podrá printear desde fuera xq 
         #no es un pandas, en caso de hacerlo igual que el resto, con un self.values = pd.DataFrame,
         #Funcionará igual, como no se podrá mostrar por pantalla, se dejará inhabilitado.
 
-    def compute_sdnn(self, rr_df, window=5):
+    def compute_hrv(self, rr_df, window = 5, threshold=50):
         rr = rr_df['rr'].values
         n = len(rr)
 
@@ -78,59 +65,65 @@ class HeartRateVariability:
 
         results = []
 
-        for i in range(n - window + 1):
-            w = rr[i : i + window]
-            sdnn_value = np.std(w, ddof=1)
+        if len(self.last4_rr) == 0:
 
-            # Primer timestamp_ini de la ventana
-            win_ini = ts_ini[i]
-            # Último timestamp_fin de la ventana
-            win_fin = ts_fin[i + window - 1]
+            n = len(rr)
+            if n < window:
+                return pd.DataFrame(columns=["Time_ini_ms", "Time_fin_ms", "sdnn", "rmsdd", "pnn50"])
 
-            results.append([win_ini, win_fin, sdnn_value])
+            for i in range(n - window + 1):
+                w = rr[i : i + window]
+                #sdnn
+                sdnn_value = np.std(w, ddof=1)
 
-        return pd.DataFrame(results, columns=["Time_ini_ms", "Time_fin_ms", "sdnn"])
+                #rmssd
+                diffs = np.diff(w)
+                rmssd_value = np.sqrt(np.mean(diffs ** 2))
 
-    def compute_rmssd(self, rr_df, window=5):
-        rr = rr_df['rr'].values
-        ts_ini = rr_df["Time_ini_ms"].values
-        ts_fin = rr_df["Time_fin_ms"].values
+                #pnn50
+                count = np.sum(diffs > threshold)
+                pnn50_value = (count / len(diffs)) * 100
 
-        n = len(rr)
-        results = []
+                win_ini = ts_ini[i]
+                win_fin = ts_fin[i + window - 1]
 
-        for i in range(n - window + 1):
-            w = rr[i : i + window]
-            diffs = np.diff(w)
-            rmssd_value = np.sqrt(np.mean(diffs ** 2))
+                results.append([win_ini, win_fin, sdnn_value, rmssd_value, pnn50_value])
 
-            win_ini = ts_ini[i]                 # primer timestamp_ini de la ventana
-            win_fin = ts_fin[i + window - 1]    # último timestamp_fin de la ventana
+            # Guardar últimos 4 valores para streaming
+            self.last4_rr = rr[-(window-1):].tolist()
+            self.last4_ini = ts_ini[-(window-1):].tolist()
 
-            results.append([win_ini, win_fin, rmssd_value])
+            return pd.DataFrame(results, columns=["Time_ini_ms", "Time_fin_ms", "sdnn", "rmsdd", "pnn50"])
 
-        return pd.DataFrame(results, columns=["Time_ini_ms", "Time_fin_ms", "rmssd"])
+        else:
+            for x, t_ini, t_fin in zip(rr, ts_ini, ts_fin):
 
-    def compute_pnn50(self, rr_df, window=5, threshold=50):
-        rr = rr_df['rr'].values
-        ts_ini = rr_df["Time_ini_ms"].values
-        ts_fin = rr_df["Time_fin_ms"].values
+                # Ventana = last4 + nuevo valor
+                w = self.last4_rr + [x]
+                #sdnn
+                sdnn_value = np.std(w, ddof=1)
 
-        n = len(rr)
-        results = []
+                #rmssd
+                diffs = np.diff(w)
+                rmssd_value = np.sqrt(np.mean(diffs ** 2))
 
-        for i in range(n - window + 1):
-            w = rr[i : i + window]
-            diffs = np.abs(np.diff(w))
-            count = np.sum(diffs > threshold)
-            pnn50_value = (count / len(diffs)) * 100
+                #pnn50
+                count = np.sum(diffs > threshold)
+                pnn50_value = (count / len(diffs)) * 100
 
-            win_ini = ts_ini[i]                 # primer timestamp_ini de la ventana
-            win_fin = ts_fin[i + window - 1]    # último timestamp_fin de la ventana
+                # Time_ini = el ini del valor más viejo guardado en last4
+                win_ini = self.last4_ini[0]
 
-            results.append([win_ini, win_fin, pnn50_value])
+                # Time_fin = el fin del nuevo valor recibido
+                win_fin = t_fin
 
-        return pd.DataFrame(results, columns=["Time_ini_ms", "Time_fin_ms", "pnn50"])
+                results.append([win_ini, win_fin, sdnn_value, rmssd_value, pnn50_value])
 
+                # Actualizar buffers last4 desplazando
+                self.last4_rr.pop(0)
+                self.last4_rr.append(x)
 
-    
+                self.last4_ini.pop(0)
+                self.last4_ini.append(t_ini)
+
+            return pd.DataFrame(results, columns=["Time_ini_ms", "Time_fin_ms", "sdnn", "rmsdd", "pnn50"])
