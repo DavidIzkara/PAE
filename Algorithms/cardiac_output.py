@@ -33,7 +33,7 @@ class CardiacOutput:
         pre_co= bld_clean.merge(hr_clean, on="Time")
 
         #Creates the CO dataframe: Timestamp | CO_value
-        return {'Timestamp': pre_co["Time"], 'CO': pre_co[bld_track] * pre_co[hr_track]} 
+        self.values = pd.DataFrame({'Timestamp': pre_co["Time"], 'CO': pre_co[bld_track] * pre_co[hr_track]})
 
     def _from_df(self, list_dataframe: list[pd.DataFrame]):
         #Se recibe una lista de dataframes
@@ -59,7 +59,7 @@ class CardiacOutput:
         pre_co= bld_clean.merge(hr_clean, on="time_ms")
 
         #Creates the CO dataframe: Timestamp | CO_value
-        return {'Timestamp': pre_co["time_ms"], 'CO': pre_co["value_x"] * pre_co["value_y"]} 
+        self.values = pd.DataFrame({'Timestamp': pre_co["time_ms"], 'CO': pre_co["value_x"] * pre_co["value_y"]})
 
 #Calculates Cardiac Output by multiplying Stroke Volume by Heart Rate.
 #Handles multiple possible heart rate track names for robustness.
