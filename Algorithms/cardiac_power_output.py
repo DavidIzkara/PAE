@@ -32,7 +32,7 @@ class CardiacPowerOutput:
         pre_cpo= mean_clean.merge(co, left_on="Time", right_on = 'Timestamp')
 
         #Creates the CPO dataframe: Timestamp | CPO_value
-        self.values = {'Timestamp': pre_cpo["Time"], 'CPO': (pre_cpo[mean_track] * pre_cpo['CO'])/ 451.0} 
+        self.values = pd.DataFrame({'Timestamp': pre_cpo["Time"], 'CPO': (pre_cpo[mean_track] * pre_cpo['CO'])/ 451.0})
 
     def _from_df(self, list_dataframe: list[pd.DataFrame]):
         #Se recibe una lista de dataframes
@@ -55,7 +55,7 @@ class CardiacPowerOutput:
         pre_cpo= mean_clean.merge(co, left_on="time_ms", right_on = 'Timestamp')
 
         #Creates the CPO dataframe: Timestamp | CPO_value
-        return {'Timestamp': pre_cpo["time_ms"], 'CPO': pre_cpo["value_x"] * pre_cpo['CO']} 
+        self.values = pd.DataFrame({'Timestamp': pre_cpo["time_ms"], 'CPO': pre_cpo["value_x"] * pre_cpo['CO']})
 
 #Calculates Cardiac Power Output by multiplying Mean Arterial Pressure by Cardiac Output and dividing by 451.
 #Handles multiple possible mean pressure track names for robustness.
