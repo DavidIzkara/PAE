@@ -27,7 +27,7 @@ class DrivingPressure:
         pre_dp= pplat_clean.merge(peep_clean, on="Time")
 
         #Creates the DP dataframe: Timestamp | DP_value
-        self.values = {'Timestamp': pre_dp["Time"], 'DP': pre_dp[pplat_track] - pre_dp[peep_track]} 
+        self.values = pd.DataFrame({'Timestamp': pre_dp["Time"], 'DP': pre_dp[pplat_track] - pre_dp[peep_track]})
 
 
 
