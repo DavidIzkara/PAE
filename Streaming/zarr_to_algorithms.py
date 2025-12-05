@@ -5,8 +5,7 @@ import time
 import numpy as np
 import pandas as pd
 
-from Streaming.utils_Streaming import OUTPUT_DIR
-from Zarr.utils_zarr_corrected import STORE_PATH, leer_zattrs_de_grupo, FRAME_SIGNAL_DEMO, FRAME_SIGNAL, FORMATO_TIMESTAMP, get_track_names_simplified, escribir_prediccion, ALGORITMOS_VISIBLES
+from Zarr.utils_zarr_corrected import STORE_PATH, read_group_zattrs, FRAME_SIGNAL_DEMO, FRAME_SIGNAL, TIMESTAMP_FORMAT, get_track_names_simplified, write_prediction, VISIBLE_ALGORITHMS
 
 DEMO = False
 
@@ -25,7 +24,7 @@ def monitorizar_actualizacion_iterativo() -> bool:
     while True:
         try:
             # Obtener y convertir el timestamp
-            metadatos = leer_zattrs_de_grupo(STORE_PATH, "")
+            metadatos = read_group_zattrs(STORE_PATH, "")
             last_updated_str = metadatos.get('last_updated')
 
             if not last_updated_str:
@@ -34,7 +33,7 @@ def monitorizar_actualizacion_iterativo() -> bool:
                 continue
 
             # Convertir la cadena a objeto datetime y calcular la diferencia
-            diferencia_tiempo = time.mktime(time.strptime(time.strftime(FORMATO_TIMESTAMP), FORMATO_TIMESTAMP)) - time.mktime(time.strptime(last_updated_str, FORMATO_TIMESTAMP))
+            diferencia_tiempo = time.mktime(time.strptime(time.strftime(TIMESTAMP_FORMAT), TIMESTAMP_FORMAT)) - time.mktime(time.strptime(last_updated_str, TIMESTAMP_FORMAT))
             print(f"Tiempo sin actualizar: {diferencia_tiempo:.2f} s. ", end="")
 
 
@@ -146,7 +145,7 @@ def main_to_loop(algoritmes_escollits):
         if monitorizar_actualizacion_iterativo(): # Esto es un await de toda la vida
             print("\n¡ACTUALIZACIÓN DETECTADA !")
             
-            metadatos_general = leer_zattrs_de_grupo(STORE_PATH, "") # Leer el .zattrs del root
+            metadatos_general = read_group_zattrs(STORE_PATH, "") # Leer el .zattrs del root
             tracks = get_track_names_simplified(STORE_PATH) # Obtener nombre de variables del Zarr (sean actualizados o no, aun no podemos distingirlos)
 
             tracks_updated = []
@@ -158,7 +157,7 @@ def main_to_loop(algoritmes_escollits):
                 Frame = FRAME_SIGNAL
             
             for track in tracks:
-                metadatos_track = leer_zattrs_de_grupo(STORE_PATH, Frame + track) # Leer el .zattrs de la varible concreta
+                metadatos_track = read_group_zattrs(STORE_PATH, Frame + track) # Leer el .zattrs de la varible concreta
                 if metadatos_track is not None:
                     if metadatos_track.get("last_updated") == metadatos_general.get("last_updated"): # Comparar la ultima actualizacion, para saber si se ha actualizado la variable o no 
                         print(f"   - La track '{track}' fue actualizada.")
@@ -185,9 +184,9 @@ def main_to_loop(algoritmes_escollits):
                     case 'BRS':
                         from Algorithms.baroreflex_sensitivity import BaroreflexSensitivity
                         results['BRS'] = BaroreflexSensitivity(dataframes).values
-                    # case 'Blood Pressure Variability':
-                    #     from Algorithms.blood_pressure_variability import BloodPressureVariability 
-                    #     results['Blood Pressure Variability'] = BloodPressureVariability(dataframes).values
+                    case 'Blood Pressure Variability':
+                        from Algorithms.blood_pressure_variability import BloodPressureVariability 
+                        results['Blood Pressure Variability'] = BloodPressureVariability(dataframes).values
                     case 'Cardiac Output':
                         from Algorithms.cardiac_output import CardiacOutput
                         results['Cardiac Output'] = CardiacOutput(dataframes).values
@@ -203,12 +202,12 @@ def main_to_loop(algoritmes_escollits):
                     case 'Effective Arterial Elastance':   
                         from Algorithms.effective_arterial_elastance import EffectiveArterialElastance
                         results['Effective Arterial Elastance'] = EffectiveArterialElastance(dataframes).values
-                    #case 'Heart Rate Variability':
-                    #    from Algorithms.heart_rate_variability import HeartRateVariability 
-                    #    results['Heart Rate Variability'] = HeartRateVariability(dataframes).values
-                    #case 'RSA':
-                    #    from Algorithms.respiratory_sinus_arrhythmia import RespiratorySinusArrhythmia
-                    #    results['RSA'] = RespiratorySinusArrhythmia(dataframes).values
+                    case 'Heart Rate Variability':
+                        from Algorithms.heart_rate_variability import HeartRateVariability 
+                        results['Heart Rate Variability'] = HeartRateVariability(dataframes).values
+                    case 'RSA':
+                        from Algorithms.respiratory_sinus_arrhythmia import RespiratorySinusArrhythmia
+                        results['RSA'] = RespiratorySinusArrhythmia(dataframes).values
                     case 'ROX Index':
                         from Algorithms.rox_index import RoxIndex
                         results['ROX Index'] = RoxIndex(dataframes).values
@@ -243,12 +242,12 @@ if __name__ == "__main__":
                 time_ms_array = df_result['Timestamp'].values
                 
                 visible = False # Bool que dicta si se puede enseñar la función
-                if Nombre_algoritmo in ALGORITMOS_VISIBLES: # Depende de si aparece en la lista de algoritmos visibles (Zarr/utils_zarr_corrected.py)
+                if Nombre_algoritmo in VISIBLE_ALGORITHMS: # Depende de si aparece en la lista de algoritmos visibles (Zarr/utils_zarr_corrected.py)
                     visible = True
                 
                 for track_name in value_columns:
                     value_array = df_result[track_name].values
-                    escribir_prediccion(STORE_PATH, track_name, time_ms_array, value_array, modelo_info={"model": Nombre_algoritmo, "visibilidad": visible})
+                    write_prediction(STORE_PATH, track_name, time_ms_array, value_array, modelo_info={"model": Nombre_algoritmo, "visibilidad": visible})
 
     except KeyboardInterrupt:
         print("\n--- Monitoreo detenido por el usuario. ---")
