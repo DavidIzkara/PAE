@@ -1,10 +1,8 @@
 import time
 import threading 
-from vitaldb import VitalFile
-from Front import Interface
 from Streaming.Streaming_to_zarr import main_loop
 from Streaming.zarr_to_algorithms import main_to_loop
-from Zarr.utils_zarr_corrected import ALGORITMOS_VISIBLES, STORE_PATH, escribir_prediccion
+from Zarr.utils_zarr_corrected import VISIBLE_ALGORITHMS, STORE_PATH, write_prediction
 
 
 def seleccionar_modo_gui():
@@ -97,14 +95,14 @@ def data_processing_loop(app, stop_event):
                 else:
                     continue
 
-                visible = NombreAlgoritmo in ALGORITMOS_VISIBLES
+                visible = NombreAlgoritmo in VISIBLE_ALGORITHMS
 
                 for track_name in value_columns:
                     value_array = df_result[track_name].values
                     if time_count == 1:
-                        escribir_prediccion(zarr_path=STORE_PATH, pred_name=track_name, timestamps_ms=time_ms_array, values=value_array, model_info = {"model": NombreAlgoritmo, "visibilidad": visible}, timestamps_fin_ms=None)
+                        write_prediction(zarr_path=STORE_PATH, pred_name=track_name, timestamps_ms=time_ms_array, values=value_array, modelo_info = {"model": NombreAlgoritmo, "visibilidad": visible}, timestamps_fin_ms=None)
                     else:
-                        escribir_prediccion(zarr_path=STORE_PATH, pred_name=track_name, timestamps_ms=time_ini_ms_array, values=value_array, model_info = {"model": NombreAlgoritmo, "visibilidad": visible}, timestamps_fin_ms=time_fin_ms_array)
+                        write_prediction(zarr_path=STORE_PATH, pred_name=track_name, timestamps_ms=time_ini_ms_array, values=value_array, modelo_info = {"model": NombreAlgoritmo, "visibilidad": visible}, timestamps_fin_ms=time_fin_ms_array)
         
             app.after(0, app.update_data_and_plots, results)
 
