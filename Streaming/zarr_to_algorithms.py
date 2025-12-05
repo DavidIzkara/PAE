@@ -9,6 +9,22 @@ from Zarr.utils_zarr_corrected import STORE_PATH, read_group_zattrs, FRAME_SIGNA
 
 DEMO = False
 
+# --- Inicializacion de los algoritmos (los que lo necessitan) ---
+
+from Algorithms.baroreflex_sensitivity import BaroreflexSensitivity
+BRS = BaroreflexSensitivity()
+
+#from Algorithms.blood_pressure_variability import BloodPressureVariability 
+#BPV = BloodPressureVariability()
+
+from Algorithms.heart_rate_variability import HeartRateVariability 
+HRV = HeartRateVariability()
+
+from Algorithms.respiratory_sinus_arrhythmia import RespiratorySinusArrhythmia
+RSA = RespiratorySinusArrhythmia()
+
+# ----------------------------------------------------------------
+
 def monitorizar_actualizacion_iterativo() -> bool:
     """
     Sondea de forma recursiva una pista y ajusta el intervalo de espera.
@@ -182,11 +198,11 @@ def main_to_loop(algoritmes_escollits):
             for algoritme in algoritmes_escollits: # Por cada algoritmo disponible, importarlo i calcularlo
                 match algoritme:
                     case 'BRS':
-                        from Algorithms.baroreflex_sensitivity import BaroreflexSensitivity
-                        results['BRS'] = BaroreflexSensitivity(dataframes).values
+                        results['BRS'] = BRS.compute(dataframes)
                     case 'Blood Pressure Variability':
-                        from Algorithms.blood_pressure_variability import BloodPressureVariability 
-                        results['Blood Pressure Variability'] = BloodPressureVariability(dataframes).values
+                        from Algorithms.blood_pressure_variability import BloodPressureVariability      # Comentar esto y descomentar las lineas del BPV del inicio del doc
+                        results['Blood Pressure Variability'] = BloodPressureVariability(dataframes).values # Comentar esto y descomentar siguiente linea
+                        #results['Blood Pressure Variability'] = BPV.compute(dataframes)
                     case 'Cardiac Output':
                         from Algorithms.cardiac_output import CardiacOutput
                         results['Cardiac Output'] = CardiacOutput(dataframes).values
@@ -203,11 +219,9 @@ def main_to_loop(algoritmes_escollits):
                         from Algorithms.effective_arterial_elastance import EffectiveArterialElastance
                         results['Effective Arterial Elastance'] = EffectiveArterialElastance(dataframes).values
                     case 'Heart Rate Variability':
-                        from Algorithms.heart_rate_variability import HeartRateVariability 
-                        results['Heart Rate Variability'] = HeartRateVariability(dataframes).values
+                        results['Heart Rate Variability'] = HRV.compute(dataframes)
                     case 'RSA':
-                        from Algorithms.respiratory_sinus_arrhythmia import RespiratorySinusArrhythmia
-                        results['RSA'] = RespiratorySinusArrhythmia(dataframes).values
+                        results['RSA'] = RSA.compute(dataframes)
                     case 'ROX Index':
                         from Algorithms.rox_index import RoxIndex
                         results['ROX Index'] = RoxIndex(dataframes).values
