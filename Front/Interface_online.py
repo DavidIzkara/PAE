@@ -6,9 +6,6 @@ from tkinter import ttk
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 import matplotlib.pyplot as plt
 
-from Streaming.zarr_to_algorithms import leer_ultimas_muestras_zarr
-from Zarr.utils_zarr_corrected import STORE_PATH
-
 
 class RealTimeApp(tk.Tk):
     def __init__(self, available_algorithms_list):
