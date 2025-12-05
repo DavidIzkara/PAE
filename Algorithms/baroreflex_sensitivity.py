@@ -85,11 +85,11 @@ class BaroreflexSensitivity:
         signal = art_signal['value'].values
         times = art_signal['Time'].values
 
-        # 1. Detectar Picos Sistólicos (Máximos)
+        # Detectar Picos Sistólicos (Máximos)
         # distance=100 (0.2s) para evitar ruido
         peaks_idx, _ = find_peaks(signal, distance=int(fs*0.25), height=40)
         
-        # 2. Detectar Valles Diastólicos (Mínimos)
+        # Detectar Valles Diastólicos (Mínimos)
         # Invertimos la señal para encontrar los mínimos usando find_peaks
         valleys_idx, _ = find_peaks(-signal, distance=int(fs*0.25))
 
@@ -157,7 +157,7 @@ class BaroreflexSensitivity:
                         t_end = ts_fin[i+2]
                         brs_results.append([t_start, t_end, slope])
 
-            # Actualizar buffers: Guardamos los últimos 2 para el siguiente ciclo
+            # Guardamos los últimos 2 para el siguiente ciclo
             self.last2_rr = rr[-2:]
             self.last2_sbp = sbp[-2:]
             self.last2_ini = ts_ini[-2:]
@@ -171,3 +171,4 @@ class BaroreflexSensitivity:
             self.last2_fin = ts_fin
 
         return pd.DataFrame(brs_results, columns=["Time_ini_ms", "Time_fin_ms", "BRS"])
+
