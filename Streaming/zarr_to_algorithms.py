@@ -10,7 +10,7 @@ from Zarr.utils_zarr_corrected import STORE_PATH, leer_zattrs_de_grupo, FRAME_SI
 
 DEMO = False
 
-def monitorizar_actualizacion_recursivo(diferencia_anterior_segundos: float = 10000) -> bool:
+def monitorizar_actualizacion_iterativo() -> bool:
     """
     Sondea de forma recursiva una pista y ajusta el intervalo de espera.
 
@@ -21,62 +21,56 @@ def monitorizar_actualizacion_recursivo(diferencia_anterior_segundos: float = 10
     Returns:
         True si se detecta una actualización, False si se interrumpe o falla.
     """
-    try:
-        # Obtener y convertir el timestamp
-        metadatos = leer_zattrs_de_grupo(STORE_PATH, "")
-        last_updated_str = metadatos.get('last_updated')
+    diferencia_anterior_segundos = 10000 # Inicialmente un valor alto, para poder detectar el canvio
+    while True:
+        try:
+            # Obtener y convertir el timestamp
+            metadatos = leer_zattrs_de_grupo(STORE_PATH, "")
+            last_updated_str = metadatos.get('last_updated')
 
-        if not last_updated_str:
-            print(f"[ERROR] Clave 'last_updated' no encontrada. Esperando 5s y reintentando...")
+            if not last_updated_str:
+                print(f"[ERROR] Clave 'last_updated' no encontrada. Esperando 5s y reintentando...")
+                time.sleep(5.0)
+                continue
+
+            # Convertir la cadena a objeto datetime y calcular la diferencia
+            diferencia_tiempo = time.mktime(time.strptime(time.strftime(FORMATO_TIMESTAMP), FORMATO_TIMESTAMP)) - time.mktime(time.strptime(last_updated_str, FORMATO_TIMESTAMP))
+            print(f"Tiempo sin actualizar: {diferencia_tiempo:.2f} s. ", end="")
+
+
+            # Comprobar si hay una actualización
+            # Si la diferencia actual es menor que la anterior, significa que 'last_updated' se actualizó.
+            if diferencia_tiempo < diferencia_anterior_segundos:
+                if diferencia_anterior_segundos != 10000: # Ignorar la primera llamada
+                    # ¡ACTUALIZACIÓN DETECTADA!
+                    print(f"\n   ¡ACTUALIZACIÓN DETECTADA! ({diferencia_anterior_segundos:.2f}s -> {diferencia_tiempo:.2f}s)")
+                    return True # Señal de éxito: Propaga True hacia arriba.
+
+            # Determinar el intervalo de espera (tiempo de 'sleep')
+            if 0 <= diferencia_tiempo <= 10:
+                sleep_time = 5.0
+            elif 10 < diferencia_tiempo <= 20:
+                sleep_time = 2.0
+            elif 20 < diferencia_tiempo <= 25:
+                sleep_time = 1.0
+            else: # diferencia_tiempo > 25
+                sleep_time = 0.5
+                
+            # Actualizar el valor anterior y pausar
+            print(f"Próxima verificación en {sleep_time} s...")
+            diferencia_anterior_segundos = diferencia_tiempo
+            time.sleep(sleep_time)
+
+        except KeyboardInterrupt:
+            print("\n--- Monitoreo detenido por el usuario. ---")
+            return False
+        except Exception as e:
+            print(f"\n[ERROR CRÍTICO] Ocurrió un error: {e}. Reintentando en 5s.")
             time.sleep(5.0)
-            return monitorizar_actualizacion_recursivo(diferencia_anterior_segundos) # Volver a llamar
-
-        # Convertir la cadena a objeto datetime y calcular la diferencia
-        diferencia_tiempo = time.mktime(time.strptime(time.strftime(FORMATO_TIMESTAMP), FORMATO_TIMESTAMP)) - time.mktime(time.strptime(last_updated_str, FORMATO_TIMESTAMP))
-        print(f"Tiempo sin actualizar: {diferencia_tiempo:.2f} s. ", end="")
-
-
-        # Comprobar si hay una actualización
-        # Si la diferencia actual es menor que la anterior, significa que 'last_updated' se actualizó.
-        if diferencia_tiempo < diferencia_anterior_segundos:
-            if diferencia_anterior_segundos != 10000: # Ignorar la primera llamada
-                 # ¡ACTUALIZACIÓN DETECTADA!
-                 print(f"\n   ¡ACTUALIZACIÓN DETECTADA! ({diferencia_anterior_segundos:.2f}s -> {diferencia_tiempo:.2f}s)")
-                 return True # Señal de éxito: Propaga True hacia arriba.
-
-        # Determinar el intervalo de espera (tiempo de 'sleep')
-        if 0 <= diferencia_tiempo <= 10:
-            sleep_time = 5.0
-        elif 10 < diferencia_tiempo <= 20:
-            sleep_time = 2.0
-        elif 20 < diferencia_tiempo <= 25:
-            sleep_time = 1.0
-        else: # diferencia_tiempo > 25
-            sleep_time = 0.5
-            
-        # Actualizar el valor anterior y pausar
-        print(f"Próxima verificación en {sleep_time} s...")
-        time.sleep(sleep_time)
-
-        # Llamada Recursiva
-        # Si la llamada recursiva retorna True, nosotros también retornamos True.
-        if monitorizar_actualizacion_recursivo(diferencia_tiempo):
-            return True
-        
-        return False # Esto se alcanzaría si una rama de la recursión se agota o se detiene. (La recursividad devuelve False, nosotros tambien tenemos que hacerlo)
-
-    except RecursionError:
-        print("\n[PELIGRO] Se alcanzó el límite de profundidad de recursión de Python. Deteniendo el monitoreo.")
-        return False
-    except KeyboardInterrupt:
-        print("\n--- Monitoreo detenido por el usuario. ---")
-        return False
-    except Exception as e:
-        print(f"\n[ERROR CRÍTICO] Ocurrió un error: {e}. Deteniendo el monitoreo.")
-        return False
+            # En un error crítico, reiniciamos la "diferencia anterior"
+            diferencia_anterior_segundos = 10000 
+            continue
     
-
-
 def leer_ultimas_muestras_zarr(zarr_path: str, sample: str, last_samples: int) -> pd.DataFrame:
     """
     Recupera las últimas 'last_samples' muestras (time_ms y value) de una pista
@@ -149,7 +143,7 @@ def main_to_loop(algoritmes_escollits):
     try:
         print(f"--- Iniciando Monitoreo Recursivo para los Tracks ---")
 
-        if monitorizar_actualizacion_recursivo(): # Esto es un await de toda la vida
+        if monitorizar_actualizacion_iterativo(): # Esto es un await de toda la vida
             print("\n¡ACTUALIZACIÓN DETECTADA !")
             
             metadatos_general = leer_zattrs_de_grupo(STORE_PATH, "") # Leer el .zattrs del root
@@ -212,9 +206,9 @@ def main_to_loop(algoritmes_escollits):
                     #case 'Heart Rate Variability':
                     #    from Algorithms.heart_rate_variability import HeartRateVariability 
                     #    results['Heart Rate Variability'] = HeartRateVariability(dataframes).values
-                    case 'RSA':
-                        from Algorithms.respiratory_sinus_arrhythmia import RespiratorySinusArrhythmia
-                        results['RSA'] = RespiratorySinusArrhythmia(dataframes).values
+                    #case 'RSA':
+                    #    from Algorithms.respiratory_sinus_arrhythmia import RespiratorySinusArrhythmia
+                    #    results['RSA'] = RespiratorySinusArrhythmia(dataframes).values
                     case 'ROX Index':
                         from Algorithms.rox_index import RoxIndex
                         results['ROX Index'] = RoxIndex(dataframes).values
@@ -232,9 +226,12 @@ def main_to_loop(algoritmes_escollits):
                         pass
             print(f"Resultados de los algoritmos: {results}")
             return results
-                    
+        else:
+            return None # En caso que falle el monitoreo o se interrumpa
+
     except KeyboardInterrupt:
         print("\n--- Monitoreo detenido por el usuario. ---")
+        return None
 
 if __name__ == "__main__":
     try:
