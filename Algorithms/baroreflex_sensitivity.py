@@ -1,18 +1,28 @@
 import vitaldb
 import numpy as np
-import pandas as pd
 from scipy.stats import linregress
 from scipy.signal import find_peaks
 from compute_rr import compute_rr
+import pandas as pd
 
 class BaroreflexSensitivity:
     
     def __init__(self,data):
         
+        self.last2_rr = []
+        self.last2_sbp = []
+        self.last2_ini = []
+        self.last2_fin = []
+        self.values = None
+
+    def compute(self, data):
         if isinstance(data, vitaldb.VitalFile):
             self._from_vf(data)
         else:
             self._from_df(data)
+        return self.values
+
+
     def _from_vf(self, vf):
         # Get all available track names in the VitalFile
         available_tracks = vf.get_track_names()
@@ -38,12 +48,8 @@ class BaroreflexSensitivity:
         art = pd.DataFrame({'value': art_raw[art_track], 'Time': art_raw.index})
         sbp = self.compute_sbp(art)
 
-        brs = self.compute_brs(sbp, rr)
+        self.values = self.compute_brs(sbp, rr)
         
-        values = brs
-        
-        self.values = pd.DataFrame({'Time_ini_ms': values["Time_ini_ms"], 'Time_fin_ms': values["Time_fin_ms"], 'BRS': values["BRS"]})
-
     def _from_df(self, list_dataframe: list[pd.DataFrame]):
         available_tracks = list_dataframe.keys()
 
@@ -67,12 +73,7 @@ class BaroreflexSensitivity:
         art = pd.DataFrame({'value': art_raw["value"], 'Time': art_raw["time_ms"]})
         sbp = self.compute_sbp(art)
 
-        # Calculate BRS metrics
-        brs = self.compute_brs(sbp, rr)
-        
-        values = brs
-
-        self.values = pd.DataFrame({'Time_ini_ms': values["Time_ini_ms"], 'Time_fin_ms': values["Time_fin_ms"], 'BRS': values["BRS"]})
+        self.values = self.compute_brs(sbp, rr)
 
     def compute_sbp(self, art_signal):
         """
@@ -116,48 +117,57 @@ class BaroreflexSensitivity:
 
         return pd.DataFrame(results, columns=['Time_ini_ms', 'Time_fin_ms', 'sbp'])
 
-        
-     
     def compute_brs(self, sbp_df, rr_df):
-        # Extraer arrays para velocidad
-        rr = rr_df['rr'].values
-        ts_ini = rr_df['Time_ini_ms'].values # Tiempos del ECG
-        ts_fin = rr_df['Time_fin_ms'].values
-        
-        sbp = sbp_df['sbp'].values
-        # sbp_df también tiene Time_ini_ms/Time_fin_ms si se necesitan para debugging,
-        # pero para el resultado final usaremos los tiempos alineados de la secuencia.
+        # Extraer arrays nuevos
+        rr_new = rr_df['rr'].values.tolist()
+        ts_ini_new = rr_df['Time_ini_ms'].values.tolist()
+        ts_fin_new = rr_df['Time_fin_ms'].values.tolist()
+        sbp_new = sbp_df['sbp'].values.tolist()
+
+        # Alinear longitud de los nuevos datos (como hacías con min(len))
+        min_len = min(len(sbp_new), len(rr_new))
+        rr_new = rr_new[:min_len]
+        sbp_new = sbp_new[:min_len]
+        ts_ini_new = ts_ini_new[:min_len]
+        ts_fin_new = ts_fin_new[:min_len]
+
+        # Concatenar con el buffer anterior
+        rr = self.last2_rr + rr_new
+        sbp = self.last2_sbp + sbp_new
+        ts_ini = self.last2_ini + ts_ini_new
+        ts_fin = self.last2_fin + ts_fin_new
 
         brs_results = []
+    
+        n = len(rr) - 2 
         
-        # Iteramos buscando secuencias de 3 latidos
-        n = min(len(sbp), len(rr)) - 2
-        
-        for i in range(n):
-            # Secuencia de SUBIDA: SBP sube y RR sube (retraso fisiológico normal)
-            is_up = (sbp[i] < sbp[i+1] < sbp[i+2]) and (rr[i] < rr[i+1] < rr[i+2])
-            
-            # Secuencia de BAJADA: SBP baja y RR baja
-            is_down = (sbp[i] > sbp[i+1] > sbp[i+2]) and (rr[i] > rr[i+1] > rr[i+2])
-
-            if is_up or is_down:
-                # Regresión lineal entre presión (x) y intervalo RR (y)
-                slope, _, r_value, _, _ = linregress(sbp[i:i+3], rr[i:i+3])
+        if n > 0:
+            for i in range(n):
+                # Secuencia de SUBIDA
+                is_up = (sbp[i] < sbp[i+1] < sbp[i+2]) and (rr[i] < rr[i+1] < rr[i+2])
                 
-                # Umbral de correlación
-                if r_value > 0.6: 
-                    # Definimos el tiempo de la secuencia:
-                    # Inicio: Comienzo del primer latido de la secuencia
-                    t_start = ts_ini[i]
-                    # Fin: Final del último latido de la secuencia
-                    t_end = ts_fin[i+2]
+                # Secuencia de BAJADA
+                is_down = (sbp[i] > sbp[i+1] > sbp[i+2]) and (rr[i] > rr[i+1] > rr[i+2])
+
+                if is_up or is_down:
+                    slope, _, r_value, _, _ = linregress(sbp[i:i+3], rr[i:i+3])
                     
-                    brs_results.append([t_start, t_end, slope])
+                    if r_value > 0.6: 
+                        t_start = ts_ini[i]
+                        t_end = ts_fin[i+2]
+                        brs_results.append([t_start, t_end, slope])
 
-        # Devolver DataFrame o vacío si no hay resultados
-        if len(brs_results) > 0:
-            return pd.DataFrame(brs_results, columns=["Time_ini_ms", "Time_fin_ms", "BRS"])
+            # Actualizar buffers: Guardamos los últimos 2 para el siguiente ciclo
+            self.last2_rr = rr[-2:]
+            self.last2_sbp = sbp[-2:]
+            self.last2_ini = ts_ini[-2:]
+            self.last2_fin = ts_fin[-2:]
+        
         else:
-            print("No se encontraron secuencias válidas para BRS.")
-            return pd.DataFrame(columns=["Time_ini_ms", "Time_fin_ms", "BRS"])
+            # Si no hay suficientes datos, guardamos todo en el buffer y esperamos
+            self.last2_rr = rr
+            self.last2_sbp = sbp
+            self.last2_ini = ts_ini
+            self.last2_fin = ts_fin
 
+        return pd.DataFrame(brs_results, columns=["Time_ini_ms", "Time_fin_ms", "BRS"])
