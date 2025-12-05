@@ -4,16 +4,8 @@ GPL GNU GENERAL PUBLIC LICENSE Version 3, 29 June 2007
 """
 
 import numpy as np
-import pywt
-import ecgtemplates
-from bisect import insort
-from collections import deque
-
-try:
-    import pathlib
-except ImportError:
-    import pathlib2 as pathlib
 import scipy.signal as signal
+
 class Detectors:
     """ECG heartbeat detection algorithms
     General useage instructions:
