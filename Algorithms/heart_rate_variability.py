@@ -36,9 +36,9 @@ class HeartRateVariability:
         self.values = self.compute_hrv(rr)
 
 
-    def _from_df(self, list_dataframe: list[pd.DataFrame]):
-        #Se recibe una lista de dataframes
-        #Se sacan los indices, que son los nombres de las variables
+    def _from_df(self, list_dataframe: dict[pd.DataFrame]):
+        # Get a Dataframes dictionary
+        # Get the track names
         available_tracks = list_dataframe.keys()
 
         # Try to find heart rate wave
@@ -59,7 +59,7 @@ class HeartRateVariability:
         rr = rr_df['rr'].values
         n = len(rr)
 
-        # Extraer timestamps
+        # Extract timestamps
         ts_ini = rr_df["Time_ini_ms"].values
         ts_fin = rr_df["Time_fin_ms"].values
 
@@ -73,6 +73,7 @@ class HeartRateVariability:
 
             for i in range(n - window + 1):
                 w = rr[i : i + window]
+
                 #sdnn
                 sdnn_value = np.std(w, ddof=1)
 
@@ -89,7 +90,7 @@ class HeartRateVariability:
 
                 results.append([win_ini, win_fin, sdnn_value, rmssd_value, pnn50_value])
 
-            # Guardar últimos 4 valores para streaming
+            # Save last 4 values for streaming
             self.last4_rr = rr[-(window-1):].tolist()
             self.last4_ini = ts_ini[-(window-1):].tolist()
 
@@ -98,8 +99,9 @@ class HeartRateVariability:
         else:
             for x, t_ini, t_fin in zip(rr, ts_ini, ts_fin):
 
-                # Ventana = last4 + nuevo valor
+                # Window = last4 + new value
                 w = self.last4_rr + [x]
+
                 #sdnn
                 sdnn_value = np.std(w, ddof=1)
 
@@ -111,15 +113,15 @@ class HeartRateVariability:
                 count = np.sum(diffs > threshold)
                 pnn50_value = (count / len(diffs)) * 100
 
-                # Time_ini = el ini del valor más viejo guardado en last4
+                # Time_ini = ini time from the oldest saved value
                 win_ini = self.last4_ini[0]
 
-                # Time_fin = el fin del nuevo valor recibido
+                # Time_fin = fin time from the new value
                 win_fin = t_fin
 
                 results.append([win_ini, win_fin, sdnn_value, rmssd_value, pnn50_value])
 
-                # Actualizar buffers last4 desplazando
+                # Update last4 buffers
                 self.last4_rr.pop(0)
                 self.last4_rr.append(x)
 
