@@ -28,7 +28,6 @@ class ShockIndex:
         hr = vf.to_pandas(track_names=hr_track, interval=0, return_timestamp=True)
         sys = vf.to_pandas(track_names=sys_track, interval=0, return_timestamp=True)
 
-        
         # Deletes the nan values
         hr_clean = hr[hr[hr_track].notna()]
         sys_clean = sys[sys[sys_track].notna()]
@@ -36,14 +35,13 @@ class ShockIndex:
         # Creates a new dataframe with timestamp | hr_value | sys_value where both values come from the same timestamp
         pre_si= hr_clean.merge(sys_clean, on="Time")
 
-        print("Timestamp", pre_si.head(n=5))
         #Creates the SI dataframe: Timestamp | SI_value
         self.values = pd.DataFrame({'Timestamp': pre_si["Time"], 'SI': pre_si[hr_track] / pre_si[sys_track]})
 
 
-    def _from_df(self, list_dataframe: list[pd.DataFrame]):
-        #Se recibe una lista de dataframes
-        #Se sacan los indices, que son los nombres de las variables
+    def _from_df(self, list_dataframe: dict[pd.DataFrame]):
+        # Get a Dataframes dictionary
+        # Get the track names
         available_tracks = list_dataframe.keys()
 
         # Try to find heart rate tracks
@@ -65,7 +63,6 @@ class ShockIndex:
 
         # Creates a new dataframe with timestamp | hr_value | sys_value where both values come from the same timestamp
         pre_si= hr_clean.merge(sys_clean, on="time_ms")
-        #print(pre_si)
 
         #Creates the SI dataframe: Timestamp | SI_value
         self.values = pd.DataFrame({'Timestamp': pre_si["time_ms"], 'SI': pre_si["value_x"] / pre_si["value_y"]})
