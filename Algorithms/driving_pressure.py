@@ -31,8 +31,8 @@ class DrivingPressure:
 
 
 
-    def _from_df(self, list_dataframe: list[pd.DataFrame]):
-        #Se recibe una lista de dataframes
+    def _from_df(self, list_dataframe: dict[pd.DataFrame]):
+        # Get a Dataframes dictionary
         
         pplat = list_dataframe['Intellivue/PPLAT_CMH2O'] 
         peep = list_dataframe['Intellivue/PEEP_CMH2O']
