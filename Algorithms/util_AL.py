@@ -5,6 +5,7 @@ GPL GNU GENERAL PUBLIC LICENSE Version 3, 29 June 2007
 
 import numpy as np
 import scipy.signal as signal
+import pandas as pd
 
 class Detectors:
     """ECG heartbeat detection algorithms
@@ -184,3 +185,27 @@ def MWA_convolve(input_array, window_size):
     ret[window_size-1:] = ret[window_size-1:] / window_size
     
     return ret
+
+def compute_rr(signal, track):
+
+    signal_clean = signal[signal[track].notna()]
+
+
+    ecg_signal = np.array(signal_clean[track], dtype=np.float64)
+    timestamps = np.array(signal_clean["Time"], dtype=np.float64)
+
+    # Generate times vector
+    times = np.arange(len(ecg_signal)) / 500
+
+    # Pan-Tompkins Detector
+    detectors = Detectors(500)
+    r_peaks_ind = detectors.pan_tompkins_detector(ecg_signal)
+
+    # Get the peaks timestamps indexes
+    timestamps_indexes = timestamps[r_peaks_ind]
+
+    # Compute the R-R intervals (seconds)
+    r_peaks_times = times[r_peaks_ind]
+    
+    #RR_Df : Timestamp_ini | Timestamp_fin | rr
+    return pd.DataFrame({'Time_ini_ms': np.delete(timestamps_indexes, len(timestamps_indexes)-1 ), 'Time_fin_ms': np.delete(timestamps_indexes, 0), 'rr': np.diff(r_peaks_times)})
