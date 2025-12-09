@@ -1,8 +1,8 @@
 import vitaldb
 import pandas as pd
 
-class DrivingPressure: 
-        
+class DrivingPressure:
+
     def __init__(self, data):
 
         if isinstance(data, vitaldb.VitalFile):
@@ -18,11 +18,10 @@ class DrivingPressure:
         pplat = vf.to_pandas(track_names=pplat_track, interval=0, return_timestamp=True)
         peep = vf.to_pandas(track_names=peep_track, interval=0, return_timestamp=True)
 
-        
         # Deletes the nan values
         pplat_clean = pplat[pplat[pplat_track].notna()]
         peep_clean = peep[peep[peep_track].notna()]
-        
+
         # Creates a new dataframe with timestamp | pplat_value | peep_value where both values come from the same timestamp
         pre_dp= pplat_clean.merge(peep_clean, on="Time")
 
@@ -31,10 +30,10 @@ class DrivingPressure:
 
 
 
-    def _from_df(self, list_dataframe: dict[pd.DataFrame]):
+    def _from_df(self, list_dataframe: dict[str, pd.DataFrame]):
         # Get a Dataframes dictionary
-        
-        pplat = list_dataframe['Intellivue/PPLAT_CMH2O'] 
+
+        pplat = list_dataframe['Intellivue/PPLAT_CMH2O']
         peep = list_dataframe['Intellivue/PEEP_CMH2O']
 
         # Deletes the nan values

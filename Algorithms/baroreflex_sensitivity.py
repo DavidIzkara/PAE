@@ -6,9 +6,9 @@ from Algorithms.util_AL import compute_rr
 import pandas as pd
 
 class BaroreflexSensitivity:
-    
+
     def __init__(self):
-        
+
         self.last2_rr = []
         self.last2_sbp = []
         self.last2_ini = []
@@ -29,14 +29,14 @@ class BaroreflexSensitivity:
 
         # Try to find heart rate wave
         hr_track = next(
-            (t for t in available_tracks if 'Intellivue/ECG_I' in t), 
-            next((t for t in available_tracks if 'Intellivue/ECG_II' in t),     
-                 next((t for t in available_tracks if 'Intellivue/ECG_III' in t), 
-                      next((t for t in available_tracks if 'Intellivue/ECG_V' in t), None)))) 
+            (t for t in available_tracks if 'Intellivue/ECG_I' in t),
+            next((t for t in available_tracks if 'Intellivue/ECG_II' in t),
+                 next((t for t in available_tracks if 'Intellivue/ECG_III' in t),
+                      next((t for t in available_tracks if 'Intellivue/ECG_V' in t), None))))
 
         # Try to find arterial pressure wave
         art_track = next(
-            (t for t in available_tracks if 'Intellivue/ART' in t), 
+            (t for t in available_tracks if 'Intellivue/ART' in t),
             next((t for t in available_tracks if 'Intellivue/ABP' in t), None))
 
 
@@ -49,26 +49,28 @@ class BaroreflexSensitivity:
         sbp = self.compute_sbp(art)
 
         self.values = self.compute_brs(sbp, rr)
-        
-    def _from_df(self, list_dataframe: list[pd.DataFrame]):
+
+    def _from_df(self, list_dataframe: dict[str, pd.DataFrame]):
         available_tracks = list_dataframe.keys()
 
         # Try to find heart rate wave
         hr_track = next(
-            (t for t in available_tracks if 'Intellivue/ECG_I' in t), 
-            next((t for t in available_tracks if 'Intellivue/ECG_II' in t),     
-                 next((t for t in available_tracks if 'Intellivue/ECG_III' in t), 
-                      next((t for t in available_tracks if 'Intellivue/ECG_V' in t), None)))) 
-        
+            (t for t in available_tracks if 'Intellivue/ECG_I' in t),
+            next((t for t in available_tracks if 'Intellivue/ECG_II' in t),
+                 next((t for t in available_tracks if 'Intellivue/ECG_III' in t),
+                      next((t for t in available_tracks if 'Intellivue/ECG_V' in t), None))))
+
+        assert hr_track is not None
         hr_raw = list_dataframe[hr_track]
         hr = pd.DataFrame({hr_track:hr_raw["value"], 'Time': hr_raw["time_ms"] })
         rr = compute_rr(hr, hr_track)
 
         # Try to find arterial pressure wave
         art_track = next(
-            (t for t in available_tracks if 'Intellivue/ART' in t), 
+            (t for t in available_tracks if 'Intellivue/ART' in t),
             next((t for t in available_tracks if 'Intellivue/ABP' in t), None))
 
+        assert art_track is not None
         art_raw = list_dataframe[art_track]
         art = pd.DataFrame({'value': art_raw["value"], 'Time': art_raw["time_ms"]})
         sbp = self.compute_sbp(art)
@@ -88,7 +90,7 @@ class BaroreflexSensitivity:
         # 1. Detectar Picos Sistólicos (Máximos)
         # distance=100 (0.2s) para evitar ruido
         peaks_idx, _ = find_peaks(signal, distance=int(fs*0.25), height=40)
-        
+
         # 2. Detectar Valles Diastólicos (Mínimos)
         # Invertimos la señal para encontrar los mínimos usando find_peaks
         valleys_idx, _ = find_peaks(-signal, distance=int(fs*0.25))
@@ -100,15 +102,15 @@ class BaroreflexSensitivity:
         if len(valleys_idx) > 1 and len(peaks_idx) > 0:
             # Para cada pico, buscamos dónde encaja en la lista de valles
             insert_positions = np.searchsorted(valleys_idx, peaks_idx)
-            
+
             for i, p_idx in enumerate(peaks_idx):
                 pos = insert_positions[i]
-                
+
                 # Validamos que el pico tenga un valle antes y un valle después
                 if pos > 0 and pos < len(valleys_idx):
                     valley_prev_idx = valleys_idx[pos - 1] # Inicio del ciclo
                     valley_next_idx = valleys_idx[pos]     # Fin del ciclo
-                    
+
                     results.append([
                         times[valley_prev_idx], # Time_ini_ms
                         times[valley_next_idx], # Time_fin_ms
@@ -138,21 +140,20 @@ class BaroreflexSensitivity:
         ts_fin = self.last2_fin + ts_fin_new
 
         brs_results = []
-    
-        n = len(rr) - 2 
-        
+
+        n = len(rr) - 2
+
         if n > 0:
             for i in range(n):
                 # Secuencia de SUBIDA
                 is_up = (sbp[i] < sbp[i+1] < sbp[i+2]) and (rr[i] < rr[i+1] < rr[i+2])
-                
                 # Secuencia de BAJADA
                 is_down = (sbp[i] > sbp[i+1] > sbp[i+2]) and (rr[i] > rr[i+1] > rr[i+2])
 
                 if is_up or is_down:
                     slope, _, r_value, _, _ = linregress(sbp[i:i+3], rr[i:i+3])
-                    
-                    if r_value > 0.6: 
+
+                    if r_value > 0.6:
                         t_start = ts_ini[i]
                         t_end = ts_fin[i+2]
                         brs_results.append([t_start, t_end, slope])
@@ -162,7 +163,7 @@ class BaroreflexSensitivity:
             self.last2_sbp = sbp[-2:]
             self.last2_ini = ts_ini[-2:]
             self.last2_fin = ts_fin[-2:]
-        
+
         else:
             # Si no hay suficientes datos, guardamos todo en el buffer y esperamos
             self.last2_rr = rr

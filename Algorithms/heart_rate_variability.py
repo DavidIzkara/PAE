@@ -24,34 +24,35 @@ class HeartRateVariability:
 
         # Try to find heart rate wave
         hr_track = next(
-            (t for t in available_tracks if 'Intellivue/ECG_I' in t), 
-            next((t for t in available_tracks if 'Intellivue/ECG_II' in t),     
-                 next((t for t in available_tracks if 'Intellivue/ECG_III' in t), 
-                      next((t for t in available_tracks if 'Intellivue/ECG_V' in t), None)))) 
+            (t for t in available_tracks if 'Intellivue/ECG_I' in t),
+            next((t for t in available_tracks if 'Intellivue/ECG_II' in t),
+                 next((t for t in available_tracks if 'Intellivue/ECG_III' in t),
+                      next((t for t in available_tracks if 'Intellivue/ECG_V' in t), None))))
 
         # Convert the signals to NumPy arrays
         hr = vf.to_pandas(track_names=hr_track, interval=1/500, return_timestamp=True)
         rr = compute_rr(hr, hr_track)
-    
+
         self.values = self.compute_hrv(rr)
 
 
-    def _from_df(self, list_dataframe: dict[pd.DataFrame]):
+    def _from_df(self, list_dataframe: dict[str, pd.DataFrame]):
         # Get a Dataframes dictionary
         # Get the track names
         available_tracks = list_dataframe.keys()
 
         # Try to find heart rate wave
         hr_track = next(
-            (t for t in available_tracks if 'Intellivue/ECG_I' in t), 
-            next((t for t in available_tracks if 'Intellivue/ECG_II' in t),     
-                 next((t for t in available_tracks if 'Intellivue/ECG_III' in t), 
-                      next((t for t in available_tracks if 'Intellivue/ECG_V' in t), None)))) 
-        
+            (t for t in available_tracks if 'Intellivue/ECG_I' in t),
+            next((t for t in available_tracks if 'Intellivue/ECG_II' in t),
+                 next((t for t in available_tracks if 'Intellivue/ECG_III' in t),
+                      next((t for t in available_tracks if 'Intellivue/ECG_V' in t), None))))
+
+        assert hr_track is not None
         hr_raw = list_dataframe[hr_track]
         hr = pd.DataFrame({hr_track:hr_raw["value"], 'Time': hr_raw["time_ms"] })
         rr = compute_rr(hr, hr_track)
-        
+
         self.values = self.compute_hrv(rr)
 
 
@@ -67,7 +68,6 @@ class HeartRateVariability:
 
         if len(self.last4_rr) == 0:
 
-            n = len(rr)
             if n < window:
                 return pd.DataFrame(columns=["Time_ini_ms", "Time_fin_ms", "sdnn", "rmsdd", "pnn50"])
 

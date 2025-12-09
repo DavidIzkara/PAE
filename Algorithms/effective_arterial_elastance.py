@@ -19,7 +19,7 @@ class EffectiveArterialElastance:
             (t for t in available_tracks if 'Intellivue/ABP_SYS' in t), # First try for invasive systolic BP
             next((t for t in available_tracks if 'Intellivue/BP_SYS' in t), # Then try for another possible invasive systolic BP
                 next((t for t in available_tracks if 'Intellivue/NIBP_SYS' in t), None))) # Finally try for non-invasive systolic BP
-        
+
 
         bld_track = 'Intellivue/VOL_BLD_STROKE'
 
@@ -27,7 +27,7 @@ class EffectiveArterialElastance:
         sys = vf.to_pandas(track_names=sys_track, interval=0, return_timestamp=True)
         bld = vf.to_pandas(track_names=bld_track, interval=0, return_timestamp=True)
 
-        
+
         # Deletes the nan values
         sys_clean = sys[sys[sys_track].notna()]
         bld_clean = bld[bld[bld_track].notna()]
@@ -39,7 +39,7 @@ class EffectiveArterialElastance:
         self.values = pd.DataFrame({'Timestamp': pre_eae["Time"], 'EAE': (0.9 * pre_eae[sys_track]) / pre_eae[bld_track]})
 
 
-    def _from_df(self, list_dataframe: dict[pd.DataFrame]):
+    def _from_df(self, list_dataframe: dict[str, pd.DataFrame]):
         # Get a Dataframes dictionary
         # Get the track names
         available_tracks = list_dataframe.keys()
@@ -49,15 +49,16 @@ class EffectiveArterialElastance:
             (t for t in available_tracks if 'Intellivue/ABP_SYS' in t), # First try for invasive systolic BP
             next((t for t in available_tracks if 'Intellivue/BP_SYS' in t), # Then try for another possible invasive systolic BP
                 next((t for t in available_tracks if 'Intellivue/NIBP_SYS' in t), None))) # Finally try for non-invasive systolic BP
-        
+
 
         bld_track = 'Intellivue/VOL_BLD_STROKE'
 
         # Converts the signals to pandas dataframes
+        assert sys_track is not None
         sys = list_dataframe[sys_track]
         bld = list_dataframe[bld_track]
 
-        
+
         # Deletes the nan values
         sys_clean = sys[sys["value"].notna()]
         bld_clean = bld[bld["value"].notna()]

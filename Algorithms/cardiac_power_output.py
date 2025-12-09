@@ -20,13 +20,13 @@ class CardiacPowerOutput:
             (t for t in available_tracks if 'Intellivue/ABP_MEAN' in t), # First try for invasive mean BP
             next((t for t in available_tracks if 'Intellivue/BP_MEAN' in t), # Then try for another possible invasive mean BP
                 next((t for t in available_tracks if 'Intellivue/NIBP_MEAN' in t), None))) # Finally try for non-invasive mean BP
-        
+
         # Converts the signals to pandas dataframes
         mean = vf.to_pandas(track_names=mean_track, interval=0, return_timestamp=True)
-        
+
         # Deletes the nan values
         mean_clean = mean[mean[mean_track].notna()]
-        
+
         co = CardiacOutput(vf).values
         # Creates a new dataframe with timestamp | mean_value | CO_value where both values come from the same timestamp
         pre_cpo= mean_clean.merge(co, left_on="Time", right_on = 'Timestamp')
@@ -34,7 +34,7 @@ class CardiacPowerOutput:
         #Creates the CPO dataframe: Timestamp | CPO_value
         self.values = pd.DataFrame({'Timestamp': pre_cpo["Time"], 'CPO': (pre_cpo[mean_track] * pre_cpo['CO'])/ 451.0})
 
-    def _from_df(self, list_dataframe: dict[pd.DataFrame]):
+    def _from_df(self, list_dataframe: dict[str, pd.DataFrame]):
         # Get a Dataframes dictionary
         # Get the track names
         available_tracks = list_dataframe.keys()
@@ -45,6 +45,7 @@ class CardiacPowerOutput:
             next((t for t in available_tracks if 'Intellivue/BP_MEAN' in t), # Then try for another possible invasive mean BP
                 next((t for t in available_tracks if 'Intellivue/NIBP_MEAN' in t), None))) # Finally try for non-invasive mean BP
 
+        assert mean_track is not None
         mean = list_dataframe[mean_track]
 
         # Deletes the nan values

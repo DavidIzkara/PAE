@@ -1,7 +1,7 @@
 import vitaldb
 import pandas as pd
 
-class ShockIndex: 
+class ShockIndex:
 
     def __init__(self, data):
 
@@ -23,7 +23,7 @@ class ShockIndex:
             (t for t in available_tracks if 'Intellivue/ABP_SYS' in t), # First try for invasive systolic BP
             next((t for t in available_tracks if 'Intellivue/BP_SYS' in t), # Then try for another possible invasive systolic BP
                 next((t for t in available_tracks if 'Intellivue/NIBP_SYS' in t), None))) # Finally try for non-invasive systolic BP
-        
+
         # Converts the signals to pandas dataframes
         hr = vf.to_pandas(track_names=hr_track, interval=0, return_timestamp=True)
         sys = vf.to_pandas(track_names=sys_track, interval=0, return_timestamp=True)
@@ -31,7 +31,7 @@ class ShockIndex:
         # Deletes the nan values
         hr_clean = hr[hr[hr_track].notna()]
         sys_clean = sys[sys[sys_track].notna()]
-        
+
         # Creates a new dataframe with timestamp | hr_value | sys_value where both values come from the same timestamp
         pre_si= hr_clean.merge(sys_clean, on="Time")
 
@@ -39,7 +39,7 @@ class ShockIndex:
         self.values = pd.DataFrame({'Timestamp': pre_si["Time"], 'SI': pre_si[hr_track] / pre_si[sys_track]})
 
 
-    def _from_df(self, list_dataframe: dict[pd.DataFrame]):
+    def _from_df(self, list_dataframe: dict[str, pd.DataFrame]):
         # Get a Dataframes dictionary
         # Get the track names
         available_tracks = list_dataframe.keys()
@@ -54,9 +54,11 @@ class ShockIndex:
             next((t for t in available_tracks if 'Intellivue/BP_SYS' in t), # Then try for another possible invasive systolic BP
                 next((t for t in available_tracks if 'Intellivue/NIBP_SYS' in t), None))) # Finally try for non-invasive systolic BP
 
-        hr = list_dataframe[hr_track] 
+        assert hr_track is not None
+        assert sys_track is not None
+        hr = list_dataframe[hr_track]
         sys = list_dataframe[sys_track]
-        
+
         # Deletes the nan values
         hr_clean = hr[hr["value"].notna()]
         sys_clean = sys[sys["value"].notna()]
@@ -66,7 +68,7 @@ class ShockIndex:
 
         #Creates the SI dataframe: Timestamp | SI_value
         self.values = pd.DataFrame({'Timestamp': pre_si["time_ms"], 'SI': pre_si["value_x"] / pre_si["value_y"]})
-       
+
 
 #Handles both invasive and non-invasive blood pressure by checking available tracks.
 #Requires heart rate track, tries multiple possible names for robustness.

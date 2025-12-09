@@ -20,25 +20,25 @@ class TempComparison:
         skin_track = next(
             (t for t in available_tracks if 'Intellivue/BT_SKIN' in t), # First try for BT_SKIN
             next((t for t in available_tracks if 'Intellivue/TEMP' in t), None)) # Then try for generic TEMP track
-        
+
 
         # Converts the signals to pandas dataframes
         core = vf.to_pandas(track_names=core_track, interval=0, return_timestamp=True)
         skin = vf.to_pandas(track_names=skin_track, interval=0, return_timestamp=True)
 
-        
+
         # Deletes the nan values
         core_clean = core[core[core_track].notna()]
         skin_clean = skin[skin[skin_track].notna()]
-        
+
         # Creates a new dataframe with timestamp | core_value | skin_value where both values come from the same timestamp
         pre_temp= core_clean.merge(skin_clean, on="Time")
 
         #Creates the TEMP dataframe: Timestamp | core_value | skin_value
         self.values = pd.DataFrame({'Timestamp': pre_temp["Time"], 'CORE': pre_temp[core_track] , 'SKIN': pre_temp[skin_track]}) 
-        
 
-    def _from_df(self, list_dataframe: dict[pd.DataFrame]):
+
+    def _from_df(self, list_dataframe: dict[str, pd.DataFrame]):
         # Get a Dataframes dictionary
         # Get the track names
         available_tracks = list_dataframe.keys()
@@ -50,11 +50,13 @@ class TempComparison:
         skin_track = next(
             (t for t in available_tracks if 'Intellivue/BT_SKIN' in t), # First try for BT_SKIN
             next((t for t in available_tracks if 'Intellivue/TEMP' in t), None)) # Then try for generic TEMP track
-        
+
         # Converts the signals to pandas dataframes
-        core = list_dataframe[core_track] 
-        skin = list_dataframe[skin_track] 
-        
+        assert core_track is not None
+        assert skin_track is not None
+        core = list_dataframe[core_track]
+        skin = list_dataframe[skin_track]
+
         # Deletes the nan values
         core_clean = core[core["value"].notna()]
         skin_clean = skin[skin["value"].notna()]
@@ -63,4 +65,4 @@ class TempComparison:
         pre_temp = core_clean.merge(skin_clean, on="time_ms")
 
         #Creates the TEMP dataframe: Timestamp | core_value | skin_value
-        self.values = pd.DataFrame({'Timestamp': pre_temp["Time"], 'CORE': pre_temp[core_track] , 'SKIN': pre_temp[skin_track]}) 
+        self.values = pd.DataFrame({'Timestamp': pre_temp["Time"], 'CORE': pre_temp[core_track] , 'SKIN': pre_temp[skin_track]})
