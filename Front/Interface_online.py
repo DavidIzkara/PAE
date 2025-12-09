@@ -5,23 +5,25 @@ import tkinter as tk
 from tkinter import ttk
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 import matplotlib.pyplot as plt
+import matplotlib.dates as mdates
+from Zarr.utils_zarr_corrected import epoch1700_to_datetime
 
 
 class RealTimeApp(tk.Tk):
-    def __init__(self, available_algorithms_list):
+    def __init__(self, available_algorithms_list, session_info="", config_queue = None):
         super().__init__()
+        self.config_queue = config_queue
         self.title("Visualización en Tiempo Real")
         self.geometry("1650x850")
 
-        # 2) Llamar a check_availability para saber qué algoritmos se pueden calcular
-        self.available_algorithms = available_algorithms_list##check_availability(example_tracks)
-        # Si por lo que sea no hay ninguno, evita que los combo queden vacíos
+        self.available_algorithms = available_algorithms_list
+        
         if not self.available_algorithms:
             self.available_algorithms = ["Sin algoritmos disponibles"]
 
-        # ------------------------------------------------------------------
-        # 3) Construir interfaz de selección usando available_algorithms
-        # ------------------------------------------------------------------
+        self.info_header = tk.Label(self, text = session_info, font = ("Arial", 12, "bold"))
+        self.info_header.pack(pady=5)
+
         selector_frame = tk.Frame(self)
         selector_frame.pack(pady=1)
 
@@ -55,13 +57,13 @@ class RealTimeApp(tk.Tk):
         plot_frame = tk.Frame(self)
         plot_frame.pack(fill="both", expand=True)
 
-        self.fig, self.axs = plt.subplots(
-            2, 2, figsize=(12, 6.5), constrained_layout=True
-        )
+        self.fig, self.axs = plt.subplots(2, 2, figsize=(12, 6.5), constrained_layout=True)
         self.canvas = FigureCanvasTkAgg(self.fig, master=plot_frame)
         self.canvas.get_tk_widget().pack(fill="both", expand=True)
 
         self.canvas.mpl_connect("button_press_event", self.on_graph_click)
+
+        self.text_annotations = [None, None, None, None]
 
         self.algorithms_results_data = {}
         # id del callback `after` para poder cancelarlo al cerrar
@@ -75,13 +77,9 @@ class RealTimeApp(tk.Tk):
 
     def update_data_and_plots(self, algorithms_results: dict):
         self.algorithms_results_data = algorithms_results
-
-        print("Graficos listos para actualizar con datos REALES de Zarr.")
-
         self.draw_plots(use_real_data=True)
 
     def on_combobox_change(self, event, index):
-
         current_combo = self.selected_vars[index]
         new_value = current_combo.get()
 
@@ -89,37 +87,51 @@ class RealTimeApp(tk.Tk):
 
         if new_value != previous_value:
             self.current_selections[index] = new_value
-
-            print(f"✅ Combobox {index+1} cambió de '{previous_value}' a '{new_value}'.")            
-            print(f"   self.current_selections ahora es: {self.current_selections}")
+            
+            if self.config_queue:
+                self.config_queue.put(self.current_selections.copy())
+            print(f"- Combobox {index+1} cambió de '{previous_value}' a '{new_value}'.")            
+            print(f"- self.current_selections ahora es: {self.current_selections}")
 
             self.draw_plots()
         else:
-            print(f"⚠️ Combobox {index+1} seleccionado, pero el valor sigue siendo '{new_value}'. No se hace nada.")
+            print(f"- Combobox {index+1} seleccionado, pero el valor sigue siendo '{new_value}'. No se hace nada.")
 
     def draw_plots(self, use_real_data = False):
         for i in range(2):
             for j in range(2):
-
+                
+                idx = i * 2 + j
                 ax = self.axs[i, j]
                 ax.clear()
-                algo_name = self.selected_vars[i * 2 + j].get()
+                algo_name = self.selected_vars[idx].get()
                 ax.set_title(algo_name)
-
+                
                 if use_real_data and algo_name in self.algorithms_results_data:
                     df_result = self.algorithms_results_data[algo_name]
-                    # Asumimos que el DataFrame tiene 'Timestamp' (o 'Time_ini/fin_ms') y una columna de valor
-                    if 'Timestamp' in df_result.columns and len(df_result.columns) > 1:
-                        x = df_result['Timestamp'].values
+                    if not df_result.empty:
+                        # Asumimos que el DataFrame tiene 'Timestamp' (o 'Time_ini/fin_ms') y una columna de valor
+                        if 'Timestamp' in df_result.columns and len(df_result.columns) > 1:
+                            raw_x = df_result['Timestamp'].values
+
+                            x = [epoch1700_to_datetime(ts/1000) for ts in raw_x] # el calculo que hace es para pasar de milisegundos a segundos (como espera la funcion)                      
+                        else: # 'Time_ini/fin_ms'
+                            raw_x_ini = df_result['Time_ini_ms'].values
+                            raw_x_fin = df_result['Time_fin_ms'].values
+                            
+                            x = [epoch1700_to_datetime(ts/1000) for ts in raw_x_ini]
+                            x_fin = [epoch1700_to_datetime(ts/1000) for ts in raw_x_fin] # Nose que valor de timestamp interesa mas mostrar si inicio o final.
+
                         value_col = [col for col in df_result.columns if col not in ['Timestamp', 'Time_ini_ms', 'Time_fin_ms']][0]
                         y = df_result[value_col].values
+
                         ax.plot(x, y, marker = '.', linestyle = '-')
-                    elif 'Time_ini_ms' in df_result.columns:
-                        x_ini = df_result['Time_ini_ms'].values
-                        y_ini = df_result['Time_fin_ms'].values
-                        value_col = [col for col in df_result.columns if col not in ['Timestamp', 'Time_ini_ms', 'Time_fin_ms']][0]
-                        y = df_result[value_col].values
-                        ax.plot(x_ini, y, marker='x', linestyle='--')
+                        ax.xaxis.set_major_formatter(mdates.DateFormatter('%M:%S'))
+
+                        last_x = x[-1]
+                        last_y = y[-1]
+
+                        ax.text(last_x, last_y, f" {last_y:.2f}", color='red', weight = 'bold', verticalalignment = 'center', bbox = dict(facecolor = 'white', alpha = 0.6, edgecolor = 'none'))
                     else:
                         self._plot_mockup(ax, algo_name, i, j)
                 else:
