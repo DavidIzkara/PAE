@@ -1,7 +1,11 @@
 import time
 import threading 
-from Streaming.Streaming_to_zarr import main_loop
+import os
+import queue
+from Front.Interface_online import RealTimeApp
+from Streaming.Streaming_to_zarr import main_loop, PRUEVAS, DIRECTORIO_PRUEVA, ARCHIVO_VITAL, BASE_DIR
 from Streaming.zarr_to_algorithms import main_to_loop
+from Streaming.utils_Streaming import obtener_directorio_del_dia, obtener_vital_mas_reciente
 from Zarr.utils_zarr_corrected import VISIBLE_ALGORITHMS, STORE_PATH, write_prediction
 
 
@@ -62,67 +66,98 @@ def seleccionar_modo_gui():
 
     return selection['mode']
 
-def data_processing_loop(app, stop_event):
+def data_processing_loop(app, stop_event, config_queue):
    
-    print("-- Iniciando Bucle de Procesamiento de Datos (zarr_to_algorithms) en thread separado --")
-
+    print("- Iniciando Bucle de Procesamiento de Datos (zarr_to_algorithms) en thread separado --")
+    
+    ultima_seleccion = app.current_selections.copy()
+    
     while not stop_event.is_set():
         try:
-            # Capturar las selecciones actuales de la GUI
-            algoritmos_elegidos = app.current_selections.copy()
-
+            canvio_detectado = False
+            while not config_queue.empty():
+                try:
+                    ultima_seleccion = config_queue.get_nowait()
+                    canvio_detectado = True
+                    global last_processed_timestamp
+                    last_processed_timestamp = 0.0
+                except queue.Empty:
+                    break
+            
+            if canvio_detectado:
+                print(f"- Saltando a la configuración más reciente: {ultima_seleccion}")
+        
             # Ejecutar algoritmos y esperar una actualización de Zarr (función bloqueante)
             # Nota: main_to_loop ahora espera internamente una actualización.
-            print(f"[{threading.current_thread().name}] Esperando nueva actualización de Zarr...")
-            results = main_to_loop(algoritmos_elegidos)
+            #print(f"- [{threading.current_thread().name}] Esperando nueva actualización de Zarr...")
+            results = main_to_loop(ultima_seleccion)
+            
+            if results:
+                print(f"[- {threading.current_thread().name}] Resultados obtenidos. Escribiendo predicciones...")
 
-            if results is None:
-                time.sleep(1)
-                continue
-
-            print(f"[{threading.current_thread().name}] Resultados obtenidos. Escribiendo predicciones...")
-   
-            for NombreAlgoritmo, df_result in results.items():
-                value_columns = [col for col in df_result.columns if col != 'Timestamp' and col != 'Time_ini_ms' and col != 'Time_fin_ms']
-                
-                if 'Timestamp' in df_result.columns:
-                    time_ms_array = df_result['Timestamp'].values
-                    time_count = 1
-                elif 'Time_ini_ms' in df_result.columns and 'Time_fin_ms' in df_result.columns:
-                    time_ini_ms_array = df_result['Time_ini_ms'].values
-                    time_fin_ms_array = df_result['Time_fin_ms'].values
-                    time_count = 2
-                else:
-                    continue
-
-                visible = NombreAlgoritmo in VISIBLE_ALGORITHMS
-
-                for track_name in value_columns:
-                    value_array = df_result[track_name].values
-                    if time_count == 1:
-                        write_prediction(zarr_path=STORE_PATH, pred_name=track_name, timestamps_ms=time_ms_array, values=value_array, modelo_info = {"model": NombreAlgoritmo, "visibilidad": visible}, timestamps_fin_ms=None)
+                for NombreAlgoritmo, df_result in results.items():
+                    value_columns = [col for col in df_result.columns if col != 'Timestamp' and col != 'Time_ini_ms' and col != 'Time_fin_ms']
+                    
+                    if 'Timestamp' in df_result.columns:
+                        time_ms_array = df_result['Timestamp'].values
+                        time_count = 1
+                    elif 'Time_ini_ms' in df_result.columns and 'Time_fin_ms' in df_result.columns:
+                        time_ini_ms_array = df_result['Time_ini_ms'].values
+                        time_fin_ms_array = df_result['Time_fin_ms'].values
+                        time_count = 2
                     else:
-                        write_prediction(zarr_path=STORE_PATH, pred_name=track_name, timestamps_ms=time_ini_ms_array, values=value_array, modelo_info = {"model": NombreAlgoritmo, "visibilidad": visible}, timestamps_fin_ms=time_fin_ms_array)
-        
-            app.after(0, app.update_data_and_plots, results)
+                        continue
 
-            print(f"[{threading.current_thread().name}] Solicitada actualización de GUI.")
+                    visible = NombreAlgoritmo in VISIBLE_ALGORITHMS
+
+                    for track_name in value_columns:
+                        value_array = df_result[track_name].values
+                        if time_count == 1:
+                            write_prediction(zarr_path=STORE_PATH, pred_name=track_name, timestamps_ms=time_ms_array, values=value_array, modelo_info = {"model": NombreAlgoritmo, "visibilidad": visible}, timestamps_fin_ms=None)
+                        else:
+                            write_prediction(zarr_path=STORE_PATH, pred_name=track_name, timestamps_ms=time_ini_ms_array, values=value_array, modelo_info = {"model": NombreAlgoritmo, "visibilidad": visible}, timestamps_fin_ms=time_fin_ms_array)
+            
+                app.after(0, app.update_data_and_plots, results)
+
+                print(f"- [{threading.current_thread().name}] Solicitada actualización de GUI.")
+            
+            time.sleep(0.5) # Esto permite a el front reaccionar cada 0.5 s i no cada 30 s
 
         except Exception as e:
-            print(f" [ERROR en DataProcessingThread] {e}")
-            time.sleep(5)
+            print(f"- [ERROR] {e}")
+            time.sleep(2)
 
 def main():
     modo = seleccionar_modo_gui()
 
     if modo is None:
-        print("No se seleccionó modo. Saliendo.")
+        print("- No se seleccionó modo. Saliendo.")
         return
 
     try:
         if modo == "online":
             try:
-                print("Modo online activado. Iniciando monitoreo y ejecución de algoritmos...")
+                print("- Modo online activado. Iniciando monitoreo y ejecución de algoritmos...")
+
+                if PRUEVAS:
+                    directorio_dia = DIRECTORIO_PRUEVA
+                    vital_path = os.path.join(DIRECTORIO_PRUEVA, ARCHIVO_VITAL)
+                else: # En caso real
+                    try: 
+                        directorio_dia = obtener_directorio_del_dia(BASE_DIR)
+                        vital_path = obtener_vital_mas_reciente(directorio_dia)
+                    except FileNotFoundError as e:
+                        print(f"- Error: {e}")
+                        return
+                    
+                # vital_path = bd9cftsa6_251205_140000
+                partes = vital_path.replace('.vital', '').split('_')
+                #uid = partes[0] # bd9cftsa6 (uid del paciente, en este caso the boss xD)
+                #fecha_str = partes[1] # 251205
+                #hora_str = partes[2] # 140000
+
+                #Formateamos para que sea comprensible para el humano
+                fecha_txt = f"Inicio: {partes[1][4:6]}/{partes[1][2:4]}/20{partes[1][0:2]} - {partes[2][0:2]}"
 
                 import threading
                 stop_event = threading.Event()
@@ -130,42 +165,35 @@ def main():
                 algoritmos_disponibles = []
                 algoritmos_cargados_event = threading.Event()
 
-                streaming_thread = threading.Thread(
-                    target=main_loop, 
-                    args=(stop_event, algoritmos_cargados_event, algoritmos_disponibles), 
-                    name="StreamingThread"
-                )
+                streaming_thread = threading.Thread(target=main_loop, args=(stop_event, algoritmos_cargados_event, algoritmos_disponibles, vital_path + ".vital", directorio_dia), name="StreamingThread")
 
-                print("-- Iniciando Streaming (Streaming_to_zarr.py) en thread separado --")
+                print("- Iniciando Streaming (Streaming_to_zarr.py) en thread separado --")
                 streaming_thread.start()
 
-                print("-- Esperando la lista de algoritmos disponibles del Streaming... --")
+                print("- Esperando la lista de algoritmos disponibles del Streaming... --")
                 algoritmos_cargados_event.wait(timeout=10)
-                print("-- Ya ha llegado la lista de algoritmos disponibles del Streaming --")
+
+                print("- Ya ha llegado la lista de algoritmos disponibles del Streaming --")
                 if not algoritmos_disponibles:
                     # Lógica de manejo de error si no se cargan a tiempo
-                    print(" Error: No se pudo obtener la lista de algoritmos. Saliendo.")
+                    print("- Error: No se pudo obtener la lista de algoritmos. Saliendo.")
                     stop_event.set()
                     streaming_thread.join()
                     return
 
-                from Front.Interface import RealTimeApp
-                app = RealTimeApp(available_algorithms_list=algoritmos_disponibles)
+                config_queue = queue.Queue()
 
-                data_thread = threading.Thread(
-                    target = data_processing_loop,
-                    args = (app, stop_event),
-                    name = "DataProcessingThread"
-                )
+                app = RealTimeApp(available_algorithms_list=algoritmos_disponibles, session_info=fecha_txt, config_queue = config_queue)
 
+                data_thread = threading.Thread(target = data_processing_loop, args = (app, stop_event, config_queue), name = "DataProcessingThread")
                 data_thread.start()
                 
                 app.mainloop()
 
-                print('\nVentana de la GUI cerrada. Deteniendo threads...')
+                print('\n- Ventana de la GUI cerrada. Deteniendo threads...')
                 
             except Exception as e:
-                print(f"Error crítico en modo online: {e}")
+                print(f"- Error crítico en modo online: {e}")
             
             finally:
                 # Asegurar la detención de ambos threads
@@ -175,14 +203,12 @@ def main():
                 if 'data_thread' in locals() and data_thread.is_alive():
                     data_thread.join(timeout=2)
                 
-                print('Threads de procesamiento detenidos. Volviendo al selector de modo.')
-                # continue (Esto requeriría que la función main() esté en un bucle externo)
-                # Para simplificar, asumimos que el programa termina aquí si se cierra la GUI.
+                print('- Threads de procesamiento detenidos. Volviendo al selector de modo.')
         else:
-            print("Modo no reconocido o offline. Saliendo.")
+            print("- Modo no reconocido o offline. Saliendo.")
 
     except KeyboardInterrupt:
-        print('\nInterrupción de usuario recibida. Saliendo...')
+        print('\n- Interrupción de usuario recibida. Saliendo...')
 
 if __name__ == '__main__':
     main()
