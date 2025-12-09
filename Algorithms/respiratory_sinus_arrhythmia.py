@@ -2,11 +2,11 @@ import numpy as np
 import pandas as pd
 from scipy.signal import find_peaks
 import vitaldb
-from compute_rr import compute_rr 
+from util_AL import compute_rr 
 
 class RespiratorySinusArrhythmia:
     
-    def __init__(self,data):
+    def __init__(self):
         
         self.last_resp_val = []
         self.last_resp_time = []
