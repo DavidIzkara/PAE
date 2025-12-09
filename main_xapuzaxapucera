@@ -1,0 +1,235 @@
+import time
+import threading 
+import tkinter as tk
+from Streaming.Streaming_to_zarr import main_loop
+from Streaming.zarr_to_algorithms import main_to_loop
+from Zarr.utils_zarr_corrected import VISIBLE_ALGORITHMS, STORE_PATH, write_prediction
+from Front.offline_windows import run_offline_wizard
+from Front.offline_pipeline import run_offline_pipeline
+from utils_offline import open_in_vitalrecorder
+
+
+def seleccionar_modo_gui():
+    try:
+        import tkinter as tk
+    except Exception:
+        # Si tkinter no está disponible (o no hay display), volver al input por consola
+        try:
+            return input("Selecciona modo (online/offline): ")
+        except Exception:
+            return None
+
+    selection = {'mode': None}
+
+    root = tk.Tk()
+    root.title('Seleccionar modo')
+    root.resizable(False, False)
+
+    # Centrar la ventana de forma simple
+    width = 300
+    height = 120
+    try:
+        screen_width = root.winfo_screenwidth()
+        screen_height = root.winfo_screenheight()
+        x = int((screen_width / 2) - (width / 2))
+        y = int((screen_height / 2) - (height / 2))
+        root.geometry(f"{width}x{height}+{x}+{y}")
+    except Exception:
+        root.geometry(f"{width}x{height}")
+
+    def set_mode(m):
+        selection['mode'] = m
+        root.quit()
+
+    lbl = tk.Label(root, text='Selecciona modo:')
+    lbl.pack(pady=(12, 6))
+
+    frm = tk.Frame(root)
+    frm.pack(pady=(0, 8))
+
+    btn_off = tk.Button(frm, text='Offline', width=10, command=lambda: set_mode('offline'))
+    btn_off.pack(side='left', padx=10)
+
+    btn_on = tk.Button(frm, text='Online', width=10, command=lambda: set_mode('online'))
+    btn_on.pack(side='left', padx=10)
+
+    # Si el usuario cierra la ventana, salir sin seleccionar
+    root.protocol('WM_DELETE_WINDOW', lambda: set_mode(None))
+
+    try:
+        root.mainloop()
+    finally:
+        try:
+            root.destroy()
+        except Exception:
+            pass
+
+    return selection['mode']
+
+
+def data_processing_loop(app, stop_event):
+   
+    print("-- Iniciando Bucle de Procesamiento de Datos (zarr_to_algorithms) en thread separado --")
+
+    while not stop_event.is_set():
+        try:
+            # Capturar las selecciones actuales de la GUI
+            algoritmos_elegidos = app.current_selections.copy()
+
+            # Ejecutar algoritmos y esperar una actualización de Zarr (función bloqueante)
+            # Nota: main_to_loop ahora espera internamente una actualización.
+            print(f"[{threading.current_thread().name}] Esperando nueva actualización de Zarr...")
+            results = main_to_loop(algoritmos_elegidos)
+
+            if results is None:
+                time.sleep(1)
+                continue
+
+            print(f"[{threading.current_thread().name}] Resultados obtenidos. Escribiendo predicciones...")
+   
+            for NombreAlgoritmo, df_result in results.items():
+                value_columns = [col for col in df_result.columns if col != 'Timestamp' and col != 'Time_ini_ms' and col != 'Time_fin_ms']
+                
+                if 'Timestamp' in df_result.columns:
+                    time_ms_array = df_result['Timestamp'].values
+                    time_count = 1
+                elif 'Time_ini_ms' in df_result.columns and 'Time_fin_ms' in df_result.columns:
+                    time_ini_ms_array = df_result['Time_ini_ms'].values
+                    time_fin_ms_array = df_result['Time_fin_ms'].values
+                    time_count = 2
+                else:
+                    continue
+
+                visible = NombreAlgoritmo in VISIBLE_ALGORITHMS
+
+                for track_name in value_columns:
+                    value_array = df_result[track_name].values
+                    if time_count == 1:
+                        write_prediction(zarr_path=STORE_PATH, pred_name=track_name, timestamps_ms=time_ms_array, values=value_array, modelo_info = {"model": NombreAlgoritmo, "visibilidad": visible}, timestamps_fin_ms=None)
+                    else:
+                        write_prediction(zarr_path=STORE_PATH, pred_name=track_name, timestamps_ms=time_ini_ms_array, values=value_array, modelo_info = {"model": NombreAlgoritmo, "visibilidad": visible}, timestamps_fin_ms=time_fin_ms_array)
+        
+            app.after(0, app.update_data_and_plots, results)
+
+            print(f"[{threading.current_thread().name}] Solicitada actualización de GUI.")
+
+        except Exception as e:
+            print(f" [ERROR en DataProcessingThread] {e}")
+            time.sleep(5)
+
+
+def main():
+    # Bucle principal: mostrar selector repetidamente. Cuando la ventana
+    # de la interfaz se cierre, volvemos a mostrar el selector.
+    while True:
+        modo = seleccionar_modo_gui()
+
+        if modo is None:
+            print("No se seleccionó modo. Saliendo.")
+            break
+
+        if modo == "offline":
+            print("Modo offline activado. Iniciando wizard offline...")
+
+            root = tk.Tk()
+            root.withdraw()
+
+            result = run_offline_wizard(root)
+            root.destroy()
+
+            if result is None:
+                print("Wizard cancelado. Volviendo al selector de modo.")
+                continue
+
+            box_id = result["box_id"]
+            patient_id = result["patient_id"]
+            vital_path = result["vital_path"]
+            algos = result["algoritmos"]
+            consts = result["constantes"]
+
+            # Aquí lanzas el pipeline offline con todos los datos
+            res = run_offline_pipeline(
+                vital_path=vital_path,
+                algoritmos=algos,
+                constantes=consts,
+            )
+
+            print("Box:", box_id)
+            print("Paciente:", patient_id)
+            print("Vital seleccionado:", vital_path)
+            print("Algoritmos .vital:", res["alg_vital_path"])
+            print("Constantes .vital:", res["const_vital_path"])
+
+            # Ejecutar VitalRecorder
+            open_in_vitalrecorder(res["alg_vital_path"])
+            open_in_vitalrecorder(res["const_vital_path"])
+            continue
+
+        elif modo == "online":
+            try:
+                print("Modo online activado. Iniciando monitoreo y ejecución de algoritmos...")
+
+                stop_event = threading.Event()
+
+                algoritmos_disponibles = []
+                algoritmos_cargados_event = threading.Event()
+
+                streaming_thread = threading.Thread(
+                    target=main_loop, 
+                    args=(stop_event, algoritmos_cargados_event, algoritmos_disponibles), 
+                    name="StreamingThread"
+                )
+
+                print("-- Iniciando Streaming (Streaming_to_zarr.py) en thread separado --")
+                streaming_thread.start()
+
+                print("-- Esperando la lista de algoritmos disponibles del Streaming... --")
+                algoritmos_cargados_event.wait(timeout=10)
+                print("-- Ya ha llegado la lista de algoritmos disponibles del Streaming --")
+                
+                if not algoritmos_disponibles:
+                    # Lógica de manejo de error si no se cargan a tiempo
+                    print(" Error: No se pudo obtener la lista de algoritmos. Saliendo.")
+                    stop_event.set()
+                    streaming_thread.join()
+                    continue
+
+                from Front.Interface import RealTimeApp
+                app = RealTimeApp(available_algorithms_list=algoritmos_disponibles)
+
+                data_thread = threading.Thread(
+                    target = data_processing_loop,
+                    args = (app, stop_event),
+                    name = "DataProcessingThread"
+                )
+
+                data_thread.start()
+                
+                app.mainloop()
+
+                print('\nVentana de la GUI cerrada. Deteniendo threads...')
+                
+            except Exception as e:
+                print(f"Error crítico en modo online: {e}")
+            
+            finally:
+                # Asegurar la detención de ambos threads
+                stop_event.set()
+                if 'streaming_thread' in locals() and streaming_thread.is_alive():
+                    streaming_thread.join(timeout=2)
+                if 'data_thread' in locals() and data_thread.is_alive():
+                    data_thread.join(timeout=2)
+                
+                print('Threads de procesamiento detenidos. Volviendo al selector de modo.')
+                continue
+
+        else:
+            print("Modo no reconocido. Saliendo.")
+            break
+
+
+if __name__ == '__main__':
+    try:
+        main()
+    except KeyboardInterrupt:
+        print('\nInterrupción de usuario recibida. Saliendo...')
