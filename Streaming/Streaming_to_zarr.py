@@ -5,21 +5,17 @@ import threading
 import random 
 from Algorithms.check_availability import check_availability
 from Zarr.utils_zarr_corrected import _DEFAULT_COMPRESSOR, STORE_PATH, safe_group, get_group_if_exists, append_1d, open_root
-<<<<<<< HEAD
-from .utils_Streaming import WAVE_TRACKS_FREQUENCIES, WAVE_STANDARD_RATE, obtener_vital_timestamp, obtener_directorio_del_dia, obtener_vital_mas_reciente
-=======
 from Streaming.utils_Streaming import WAVE_TRACKS_FREQUENCIES, WAVE_STANDARD_RATE, obtener_vital_timestamp, obtener_directorio_del_dia, obtener_vital_mas_reciente
->>>>>>> 2c3867408f085d6b49299571b71c852e2096aa24
 from vitaldb import VitalFile 
 
-BASE_DIR = r"C:\Users\UX636EU\OneDrive - EY\Desktop\recordings" 
+BASE_DIR = "/mnt/c/Users/UX636EU/OneDrive - EY/Desktop/recordings" 
 POLLING_INTERVAL = 1 
 
 # -------------------------------------------------------------------------------------------
-PRUEVAS = True 
+PRUEVAS = False 
 
-DIRECTORIO_PRUEVA = r"C:\Users\UX636EU\OneDrive - EY\Desktop\VitalParser-main\VitalParser-main\records\4\250618" 
-ARCHIVO_VITAL = r"nd7wx5v9h_250618_133910.vital" 
+DIRECTORIO_PRUEVA = "/mnt/c/Users/UX636EU/OneDrive - EY/Desktop/VitalParser-main/VitalParser-main/records/4/250618" 
+ARCHIVO_VITAL = "nd7wx5v9h_250618_133910.vital" 
 
 SIM_MIN_SECS = 20
 SIM_MAX_SECS = 30
