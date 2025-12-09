@@ -76,7 +76,7 @@ def main():
 
         elif modo == "online":
             print("Modo online activado. Iniciando interfaz gráfica...")
-            from Front.Interface import RealTimeApp
+            from Front.Interface_online import RealTimeApp
             app = RealTimeApp()
             # `app.mainloop()` bloqueará hasta que la ventana sea destruida;
             # al volver, el bucle repetirá y se mostrará el selector de modo.

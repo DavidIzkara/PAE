@@ -4,7 +4,7 @@ import numpy as np
 import threading
 import random 
 from Zarr.utils_zarr_corrected import _DEFAULT_COMPRESSOR, STORE_PATH, safe_group, get_group_if_exists, append_1d, open_root
-from utils_Streaming import WAVE_TRACKS_FREQUENCIES, WAVE_STANDARD_RATE, obtener_vital_timestamp, obtener_directorio_del_dia, obtener_vital_mas_reciente
+from .utils_Streaming import WAVE_TRACKS_FREQUENCIES, WAVE_STANDARD_RATE, obtener_vital_timestamp, obtener_directorio_del_dia, obtener_vital_mas_reciente
 from vitaldb import VitalFile 
 
 BASE_DIR = r"C:\Users\UX636EU\OneDrive - EY\Desktop\recordings" 

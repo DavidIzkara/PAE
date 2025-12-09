@@ -6,6 +6,8 @@ stored in Zarr format.
 Compatible with Zarr v2 (appendable 1D datasets, Blosc compression).
 """
 
+from __future__ import annotations
+
 import hashlib
 import os
 import time

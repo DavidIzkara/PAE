@@ -1,28 +1,40 @@
 import time
-from Algorithms import ejecutar_algoritmos
-from Front import Interface
+import threading
+
+# --- IMPORTS ONLINE ---
+#from Algorithms import ejecutar_algoritmos  # si lo necesitas en algún punto
 from Streaming.Streaming_to_zarr import main_loop
 from Streaming.zarr_to_algorithms import main_to_loop
-from Zarr.utils_zarr_corrected import ALGORITMOS_VISIBLES, STORE_PATH, escribir_prediccion
+from Zarr.utils_zarr_corrected import (
+    ALGORITMOS_VISIBLES,
+    STORE_PATH,
+    escribir_prediccion,
+)
+from Front.Interface_online import RealTimeApp
+
+# --- IMPORTS OFFLINE (ajusta a tus módulos reales si cambian nombres) ---
+# from Algorithms.check_availability import check_availability
+# from SomeModule import VitalFile, find_latest_vital
+# from Algorithms.shock_index import ShockIndex
+# ...
 
 
 def seleccionar_modo_gui():
+    """Muestra una pequeña ventana para elegir modo (online/offline).
+    Si no hay Tk o hay error, cae a input() por consola."""
     try:
         import tkinter as tk
     except Exception:
-        # Si tkinter no está disponible (o no hay display), volver al input por consola
         try:
             return input("Selecciona modo (online/offline): ")
         except Exception:
             return None
 
     selection = {'mode': None}
-
     root = tk.Tk()
     root.title('Seleccionar modo')
     root.resizable(False, False)
 
-    # Centrar la ventana de forma simple
     width = 300
     height = 120
     try:
@@ -44,13 +56,14 @@ def seleccionar_modo_gui():
     frm = tk.Frame(root)
     frm.pack(pady=(0, 8))
 
-    btn_off = tk.Button(frm, text='Offline', width=10, command=lambda: set_mode('offline'))
+    btn_off = tk.Button(frm, text='Offline', width=10,
+                        command=lambda: set_mode('offline'))
     btn_off.pack(side='left', padx=10)
 
-    btn_on = tk.Button(frm, text='Online', width=10, command=lambda: set_mode('online'))
+    btn_on = tk.Button(frm, text='Online', width=10,
+                       command=lambda: set_mode('online'))
     btn_on.pack(side='left', padx=10)
 
-    # Si el usuario cierra la ventana, salir sin seleccionar
     root.protocol('WM_DELETE_WINDOW', lambda: set_mode(None))
 
     try:
@@ -63,12 +76,18 @@ def seleccionar_modo_gui():
 
     return selection['mode']
 
+
 def iniciar_streaming_en_thread(algoritmes_escollits):
-    
-    results = main_to_loop(algoritmes_escollits) # Funcion principal del zarr_to_algorithms.py
-    
+    """Llama a main_to_loop(algoritmes_escollits) para obtener resultados de algoritmos
+    y los escribe en Zarr mediante escribir_prediccion(). Devuelve results."""
+    results = main_to_loop(algoritmes_escollits)
+
     for NombreAlgoritmo, df_result in results.items():
-        value_columns = [col for col in df_result.columns if col != 'Timestamp' and col != 'Time_ini_ms' and col != 'Time_fin_ms']
+        value_columns = [
+            col for col in df_result.columns
+            if col not in ('Timestamp', 'Time_ini_ms', 'Time_fin_ms')
+        ]
+
         if 'Timestamp' in df_result.columns:
             time_ms_array = df_result['Timestamp'].values
             time_count = 1
@@ -76,100 +95,106 @@ def iniciar_streaming_en_thread(algoritmes_escollits):
             time_ini_ms_array = df_result['Time_ini_ms'].values
             time_fin_ms_array = df_result['Time_fin_ms'].values
             time_count = 2
-        
+
         visible = NombreAlgoritmo in ALGORITMOS_VISIBLES
 
         for track_name in value_columns:
             value_array = df_result[track_name].values
             if time_count == 1:
-                escribir_prediccion(STORE_PATH, track_name, time_ms_array, value_array, model_info = {"model": NombreAlgoritmo, "visibilidad": visible})
+                escribir_prediccion(
+                    STORE_PATH,
+                    track_name,
+                    time_ms_array,
+                    value_array,
+                    model_info={"model": NombreAlgoritmo,
+                                "visibilidad": visible},
+                )
             else:
-                escribir_prediccion(STORE_PATH, track_name, time_ini_ms_array, value_array, model_info = {"model": NombreAlgoritmo, "visibilidad": visible}, timestamps_fin_ms=time_fin_ms_array)
+                escribir_prediccion(
+                    STORE_PATH,
+                    track_name,
+                    time_ini_ms_array,
+                    value_array,
+                    model_info={"model": NombreAlgoritmo,
+                                "visibilidad": visible},
+                    timestamps_fin_ms=time_fin_ms_array,
+                )
 
     return results
 
-def main():
-    modo = seleccionar_modo_gui()
 
-    if modo is None:
-        print("No se seleccionó modo. Saliendo.")
-        return
+def modo_offline():
+    """Aquí va tu lógica offline (VitalFile, check_availability, etc.)."""
+    print("Modo offline activado. Esperando acciones... (Ctrl+C para salir de offline)")
+    try:
+        while True:
+            time.sleep(1)
+    except KeyboardInterrupt:
+        print("Saliendo de modo offline.")
+
+
+def modo_online():
+    """Arranca streaming + algoritmos + interfaz gráfica RealTimeApp."""
+    print("Modo online activado. Iniciando monitoreo y ejecución de algoritmos...")
+
+    stop_event = threading.Event()
+    streaming_thread = threading.Thread(
+        target=main_loop,
+        args=(stop_event,),
+        name="StreamingThread",
+        daemon=True,
+    )
+
+    print("-- Iniciando Streaming (Streaming_to_zarr.py) en thread separado --")
+    streaming_thread.start()
+
+    # Algoritmos escogidos (por ahora puedes poner una lista fija o integrarlo con la GUI)
+    algoritmes_escollits = []  # TODO: enlazar con lo que elija el usuario en la interfaz
+
+    # Lanza la interfaz en el hilo principal
+    app = RealTimeApp()
+
+    # Ejemplo: actualizar resultados de algoritmos periódicamente
+    def actualizar_resultados():
+        # results = iniciar_streaming_en_thread(algoritmes_escollits)
+        # TODO: pasar 'results' a app para que actualice sus gráficas con datos reales
+        app.after(20000, actualizar_resultados)  # cada 20 s (ajusta)
+
+    app.after(20000, actualizar_resultados)
 
     try:
-        if modo == "offline":
-            print("Modo offline activado. Esperando acciones...")
-            #recordings_dir = r"" pendiente poner el path del vital_file
-            vital_path = find_latest_vital(recordings_dir)
-            vf = VitalFile(vital_path)
-            
-            tracks = vf.get_track_names()
-            possible_list = check_availability(tracks)
-            print("Los algoritmos disponibles son: ", possible_list )
-            
-            results = {}
-            for algorithm in possible_list:
-            
-                 if algorithm == 'Shock Index':
-                     results['Shock Index'] = ShockIndex(vf).values
-                 elif algorithm == 'Driving Pressure':
-                     results['Driving Pressure'] = DrivingPressure(vf).values
-                 elif algorithm == 'Dynamic Compliance':
-                     results['Dynamic Compliance'] = DynamicCompliance(vf).values
-                 elif algorithm == 'ROX Index':
-                     results['ROX Index'] = RoxIndex(vf).values
-                 elif algorithm == 'Temp Comparison':
-                     results['Temp Comparison'] = TempComparison(vf).values
-                 elif algorithm == 'Cardiac Output':
-                     results['Cardiac Output'] = CardiacOutput(vf).values
-                 elif algorithm == 'Systemic Vascular Resistance':
-                     results['Systemic Vascular Resistance'] = SystemicVascularResistance(vf).values
-                 elif algorithm == 'Cardiac Power Output':
-                     results['Cardiac Power Output'] = CardiacPowerOutput(vf).values
-                 elif algorithm == 'Effective Arterial Elastance':
-                     results['Effective Arterial Elastance'] = EffectiveArterialElastance(vf).values
-                if algorithm == 'Heart Rate Variability':
-                    results['Heart Rate Variability'] = HeartRateVariability(vf).values  
-            #     elif algorithm =='Blood Pressure Variability':
-            #         results['Blood Pressure Variability'] = BloodPressureVariability(vf).values
-            #     elif algorithm =='BRS':
-            #         results['BRS'] = BRS(vf).values
-            #     elif algorithm =='RSA:
-            #         results['RSA'] = RSA(vf).values
-                
-                 # Pendiente añadir Variables autonomicas
-                 elif algorithm == 'ICP Model':
-                    results['ICP Model'] = icp_model() #Pendiente ver como añadir el modelo de ICP
-                 elif algorithm == 'ABP Model':
-                    results['ABP Model'] = abp_model() #Pendiente ver como añadir el modelo de ABP
+        app.mainloop()
+    finally:
+        print("Cerrando interfaz. Deteniendo streaming...")
+        stop_event.set()
+        streaming_thread.join()
+        print("Streaming detenido.")
 
-            #Pendiente exportar los resultados a csv o a un vitalfile o hacer algo con ellos
-        
-        elif modo == "online":
-            try: 
-                print("Modo online activado. Iniciando monitoreo y ejecución de algoritmos...")
-                import threading
 
-                stop_event = threading.Event()
-                streaming_thread = threading.Thread(target = main_loop, args=(stop_event,), name = "StreamingThread")
+def main():
+    """Bucle principal: muestra el selector, entra en offline/online,
+    y al terminar vuelve al selector salvo que el usuario cierre."""
+    try:
+        while True:
+            modo = seleccionar_modo_gui()
 
-                print("-- Iniciando Streaming (Streaming_to_zarr.py) en thread separado --")
-                streaming_thread.start()
+            if modo is None:
+                print("No se seleccionó modo. Saliendo.")
+                break
 
-                print("-- Iniciando bucle (zarr_to_algorithms.py) en Hilo Principal --")
+            if modo == "offline":
+                modo_offline()
 
-                while True:
-                    results = iniciar_streaming_en_thread(algoritmes_escollits) # Results es la variable que contiene un dataframe con todos los calculos hechos por algoritmos en el burst de datos (20-30 secs)
-                    # Aqui hacemos la actualizacion al front
+            elif modo == "online":
+                modo_online()
+                print("Interfaz online cerrada. Volviendo al selector.")
 
-            except KeyboardInterrupt:
-                print('\nInterrupción de usuario recibida. Deteniendo Streaming...')
-                stop_event.set()
-                streaming_thread.join()
-                print('Streaming detenido. Programa finalizado.')
-        else:
-            print("Modo no reconocido. Saliendo.")
+            else:
+                print("Modo no reconocido. Saliendo.")
+                break
+
     except KeyboardInterrupt:
-        print('\nInterrupción de usuario recibida. Saliendo...')
+        print("\nInterrupción de usuario recibida. Saliendo...")
 
 
 if __name__ == '__main__':
