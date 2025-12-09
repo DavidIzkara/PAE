@@ -2,12 +2,12 @@ import vitaldb
 import numpy as np
 from scipy.stats import linregress
 from scipy.signal import find_peaks
-from compute_rr import compute_rr
+from util_AL import compute_rr
 import pandas as pd
 
 class BaroreflexSensitivity:
     
-    def __init__(self,data):
+    def __init__(self):
         
         self.last2_rr = []
         self.last2_sbp = []
@@ -85,11 +85,11 @@ class BaroreflexSensitivity:
         signal = art_signal['value'].values
         times = art_signal['Time'].values
 
-        # Detectar Picos Sistólicos (Máximos)
+        # 1. Detectar Picos Sistólicos (Máximos)
         # distance=100 (0.2s) para evitar ruido
         peaks_idx, _ = find_peaks(signal, distance=int(fs*0.25), height=40)
         
-        # Detectar Valles Diastólicos (Mínimos)
+        # 2. Detectar Valles Diastólicos (Mínimos)
         # Invertimos la señal para encontrar los mínimos usando find_peaks
         valleys_idx, _ = find_peaks(-signal, distance=int(fs*0.25))
 
@@ -157,7 +157,7 @@ class BaroreflexSensitivity:
                         t_end = ts_fin[i+2]
                         brs_results.append([t_start, t_end, slope])
 
-            # Guardamos los últimos 2 para el siguiente ciclo
+            # Actualizar buffers: Guardamos los últimos 2 para el siguiente ciclo
             self.last2_rr = rr[-2:]
             self.last2_sbp = sbp[-2:]
             self.last2_ini = ts_ini[-2:]
@@ -171,4 +171,3 @@ class BaroreflexSensitivity:
             self.last2_fin = ts_fin
 
         return pd.DataFrame(brs_results, columns=["Time_ini_ms", "Time_fin_ms", "BRS"])
-
