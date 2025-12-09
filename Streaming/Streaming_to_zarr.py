@@ -8,14 +8,14 @@ from Zarr.utils_zarr_corrected import _DEFAULT_COMPRESSOR, STORE_PATH, safe_grou
 from Streaming.utils_Streaming import WAVE_TRACKS_FREQUENCIES, WAVE_STANDARD_RATE, obtener_vital_timestamp, obtener_directorio_del_dia, obtener_vital_mas_reciente
 from vitaldb import VitalFile 
 
-BASE_DIR = "/mnt/c/Users/UX636EU/OneDrive - EY/Desktop/recordings" 
+BASE_DIR = r"C:\Users\UX636EU\OneDrive - EY\Desktop\recordings" 
 POLLING_INTERVAL = 1 
 
 # -------------------------------------------------------------------------------------------
-PRUEVAS = False 
+PRUEVAS = True
 
-DIRECTORIO_PRUEVA = "/mnt/c/Users/UX636EU/OneDrive - EY/Desktop/VitalParser-main/VitalParser-main/records/4/250618" 
-ARCHIVO_VITAL = "nd7wx5v9h_250618_133910.vital" 
+DIRECTORIO_PRUEVA = r"C:\Users\UX636EU\OneDrive - EY\Desktop\recordings\251205" 
+ARCHIVO_VITAL = r"bd9cftsa6_251205_140000" 
 
 SIM_MIN_SECS = 20
 SIM_MAX_SECS = 30
@@ -74,7 +74,7 @@ def vital_to_zarr_streaming(
         try:
             data = vf.to_numpy([track], interval=interval, return_timestamp=True)
         except Exception as e:
-            print(f"[WARN] No s'ha pogut llegir el track '{track}' amb interval={interval}: {e}")
+            print(f"-- [WARN] No s'ha pogut llegir el track '{track}' amb interval={interval}: {e}")
             skipped_empty += 1
             continue
 
@@ -143,7 +143,7 @@ def vital_to_zarr_streaming(
                     continue
                     
             except Exception as e:
-                print(f"[WARN] No s'ha pogut llegir l'últim time_ms de '{track}' per a deduplicació: {e}")
+                print(f"-- [WARN] No s'ha pogut llegir l'últim time_ms de '{track}' per a deduplicació: {e}")
                 pass
                 
         # Crea el directorio que contendra los datos de la variable
@@ -176,17 +176,17 @@ def vital_to_zarr_streaming(
         written_tracks += 1
         written_any = True
 
-    print(f"Todas las variables actualizadas: {tracks_updated}")
+    print(f"-- Todas las variables actualizadas: {tracks_updated}")
     root.attrs.setdefault("schema", "v1")
     root.attrs.setdefault("created_by", "Streaming")    # Variables del .zattrs del .zarr
     root.attrs.setdefault("time_origin", "epoch1700_ms")
     root.attrs["last_updated"] = timestamp
 
     if written_any:
-        print(f"\n✅ Escrita/actualitzada la col·lecció a: {zarr_path}")
-        print(f"   Tracks actualitzades: {written_tracks}, mostres afegides: {total_added_samples}")
+        print(f"\n-- Escrita/actualitzada la col·lecció a: {zarr_path}")
+        print(f"-- Tracks actualitzades: {written_tracks}, mostres afegides: {total_added_samples}")
     else:
-        print(f"\n⚠️  No s'ha escrit cap mostra nova.")
+        print(f"\n-- No s'ha escrit cap mostra nova.")
         
     return new_last_read_counts # Devuelve los conteos nuevos
 
@@ -198,10 +198,10 @@ def verificar_y_procesar(vital_path, last_size, last_read_counts, simulated_grow
     """
 
     if PRUEVAS:
-        print("\n--- MODO PRUEVAS ACTIVADO (Streaming_to_zarr.py) ---")
+        print("\n-- MODO PRUEVAS ACTIVADO (Streaming_to_zarr.py) ---")
     
     if not os.path.exists(vital_path):
-        print(f" Error: El archivo {os.path.basename(vital_path)} ya no existe.")
+        print(f"-- Error: El archivo {os.path.basename(vital_path)} ya no existe.")
         return -1, last_read_counts, True # Devuelve finished = True en caso de que el fitxero no exista
     
     current_size = os.path.getsize(vital_path)
@@ -212,13 +212,13 @@ def verificar_y_procesar(vital_path, last_size, last_read_counts, simulated_grow
     if not PRUEVAS and (last_size == -1 or current_size < last_size): 
         return current_size, last_read_counts, False
     
-    print(f"\n El archivo {os.path.basename(vital_path)} se ha cambiado/simulado. Tamaño: {last_size if last_size != -1 else 0} -> {current_size} bytes.")
+    print(f"\n-- El archivo {os.path.basename(vital_path)} se ha cambiado/simulado. Tamaño: {last_size if last_size != -1 else 0} -> {current_size} bytes.")
 
     new_last_read_counts = last_read_counts.copy()
     
     for attemp in range(3):
         try:
-            print(f"\n--- INICIANT PROCESSAMENT ZARR AL FITXER: {STORE_PATH} (Streaming_to_zarr.py) ---")
+            print(f"\n-- INICIANT PROCESSAMENT ZARR AL FITXER: {STORE_PATH} (Streaming_to_zarr.py) ---")
             
             window_to_process = simulated_growth_seconds if PRUEVAS else None # En caso de no ser PRUEVAS, esto no sirve de nada
 
@@ -233,15 +233,15 @@ def verificar_y_procesar(vital_path, last_size, last_read_counts, simulated_grow
 
         except Exception as e:
             if attemp < 2:
-                print(f" [WARN] Error al processar a Zarr (Intent {attemp+1}/3): {type(e).__name__}: {e}. Reintentant en 0.5 segons...")
+                print(f"-- [WARN] Error al processar a Zarr (Intent {attemp+1}/3): {type(e).__name__}: {e}. Reintentant en 0.5 segons...")
                 time.sleep(0.5)
                 continue
-            print(f" Error CRÍTIC al processar a Zarr: {type(e).__name__}: {e}")
+            print(f"-- Error CRÍTIC al processar a Zarr: {type(e).__name__}: {e}")
             return last_size, last_read_counts, False # En caso de error critico, devolver el conteo
 
     if PRUEVAS:
         total_simulated_time = simulated_growth_seconds
-        print(f"--- SIMULACIÓ: S'han processat {total_simulated_time} segons de dades noves. ---")
+        print(f"-- SIMULACIÓ: S'han processat {total_simulated_time} segons de dades noves. ---")
         # En modo PRUEVAS, solo acaba cuando llega al final de todo
         return current_size, new_last_read_counts, False 
 
@@ -250,28 +250,15 @@ def verificar_y_procesar(vital_path, last_size, last_read_counts, simulated_grow
 
 # --------------------------------------------------------------------------------------
 
-def main_loop(stop_event: threading.Event, algoritmos_cargados_event: threading.Event, algoritmos_disponibles: list):
-    if PRUEVAS:
-        directorio_dia = DIRECTORIO_PRUEVA
-        vital_path = os.path.join(DIRECTORIO_PRUEVA, ARCHIVO_VITAL)
-
-        print(f" SIMULACIÓN DE ACTUALIZACIÓN: {SIM_MIN_SECS}-{SIM_MAX_SECS} segundos por ciclo.")
-        print(f" Iniciando Polling cada {POLLING_INTERVAL} segundos")
-    else: # En caso real
-        try: 
-            directorio_dia = obtener_directorio_del_dia(BASE_DIR)
-            vital_path = obtener_vital_mas_reciente(directorio_dia)
-        except FileNotFoundError as e:
-            print(f" Error: {e}")
-            return
+def main_loop(stop_event: threading.Event, algoritmos_cargados_event: threading.Event, algoritmos_disponibles: list, vital_path, directorio_dia):
 
     session_timestamp = obtener_vital_timestamp(vital_path)
 
-    print(f" Carpeta del día: {directorio_dia}")
-    print(f" Archivo .vital más reciente: {os.path.basename(vital_path)}")
-    print(f" Timestamp de Sesión (per a Zarr): {session_timestamp}")
-    print(f" Directorio de salida ZARR (Acumulativo): {STORE_PATH}")
-    print(f" Iniciando Polling cada {POLLING_INTERVAL} segundos")
+    print(f"-- Carpeta del día: {directorio_dia}")
+    print(f"-- Archivo .vital más reciente: {os.path.basename(vital_path)}")
+    print(f"-- Timestamp de Sesión (per a Zarr): {session_timestamp}")
+    print(f"-- Directorio de salida ZARR (Acumulativo): {STORE_PATH}")
+    print(f"-- Iniciando Polling cada {POLLING_INTERVAL} segundos")
 
     vf = VitalFile(vital_path)
     lista_algoritmos = check_availability(vf.get_track_names())
@@ -290,7 +277,7 @@ def main_loop(stop_event: threading.Event, algoritmos_cargados_event: threading.
         while not stop_event.is_set():
             if PRUEVAS:
                 simulated_growth_seconds = random.randint(SIM_MIN_SECS, SIM_MAX_SECS)
-                print(f"\n--- SIMULACIÓN ---: Leyendo bloque de {simulated_growth_seconds} segundos.")
+                print(f"\n-- SIMULACIÓN --: Leyendo bloque de {simulated_growth_seconds} segundos.")
             else:
                 simulated_growth_seconds = 0
             
@@ -307,22 +294,22 @@ def main_loop(stop_event: threading.Event, algoritmos_cargados_event: threading.
             # Control de finalitzación de simulación
             if PRUEVAS:
                 if finished:
-                    print("\n--- SIMULACIÓN FINALIZADA: Archivo no disponible o terminado. ---")
+                    print("\n-- SIMULACIÓN FINALIZADA: Archivo no disponible o terminado. ---")
                     stop_event.set()
                     break
 
                 current_sim_cycle += 1
 
                 if current_sim_cycle >= total_sim_cycles:
-                    print(f"\n--- SIMULACIÓN FINALIZADA: {total_sim_cycles} ciclos completados. ---")
+                    print(f"\n-- SIMULACIÓN FINALIZADA: {total_sim_cycles} ciclos completados. ---")
                     break
             
             time.sleep(POLLING_INTERVAL)
 
     except KeyboardInterrupt:
-        print("\n Finalizando Polling.")
+        print("\n-- Finalizando Polling.")
 
 if __name__ == "__main__":
-    print("Prueva del Streaming en Thread")
+    print("-- Prueva del Streaming en Thread")
     stop_event = threading.Event()
     main_loop(stop_event)
