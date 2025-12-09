@@ -11,8 +11,8 @@ DEMO = False
 
 # --- Inicializacion de los algoritmos (los que lo necessitan) ---
 
-from Algorithms.baroreflex_sensitivity import BaroreflexSensitivity
-BRS = BaroreflexSensitivity()
+#from Algorithms.baroreflex_sensitivity import BaroreflexSensitivity
+#BRS = BaroreflexSensitivity()
 
 #from Algorithms.blood_pressure_variability import BloodPressureVariability 
 #BPV = BloodPressureVariability()
@@ -25,6 +25,8 @@ RSA = RespiratorySinusArrhythmia()
 
 # ----------------------------------------------------------------
 
+last_processed_timestamp = 0.0
+
 def monitorizar_actualizacion_iterativo() -> bool:
     """
     Sondea de forma recursiva una pista y ajusta el intervalo de espera.
@@ -36,21 +38,43 @@ def monitorizar_actualizacion_iterativo() -> bool:
     Returns:
         True si se detecta una actualización, False si se interrumpe o falla.
     """
+    global last_processed_timestamp
+
+    try:
+        metadatos = read_group_zattrs(STORE_PATH, "")
+        last_updated_str = metadatos.get('last_updated')
+
+        if not last_updated_str:
+            return False
+
+        archivo_ts = time.mktime(time.strptime(last_updated_str, TIMESTAMP_FORMAT))
+
+        if archivo_ts > last_processed_timestamp:
+            print(f"\n⚡ Cambio detectado: Archivo({last_updated_str}) > Procesado anteriormente")
+            last_processed_timestamp = archivo_ts
+            return True
+
+        return False
+    
+    except Exception as e:
+        return False
+    """
     diferencia_anterior_segundos = 10000 # Inicialmente un valor alto, para poder detectar el canvio
+    
     while True:
         try:
             # Obtener y convertir el timestamp
             metadatos = read_group_zattrs(STORE_PATH, "")
             last_updated_str = metadatos.get('last_updated')
+            
 
             if not last_updated_str:
-                print(f"[ERROR] Clave 'last_updated' no encontrada. Esperando 5s y reintentando...")
+                print(f"--- [ERROR] Clave 'last_updated' no encontrada. Esperando 5s y reintentando...")
                 time.sleep(5.0)
-                continue
 
             # Convertir la cadena a objeto datetime y calcular la diferencia
             diferencia_tiempo = time.mktime(time.strptime(time.strftime(TIMESTAMP_FORMAT), TIMESTAMP_FORMAT)) - time.mktime(time.strptime(last_updated_str, TIMESTAMP_FORMAT))
-            print(f"Tiempo sin actualizar: {diferencia_tiempo:.2f} s. ", end="")
+            print(f"--- Tiempo sin actualizar: {diferencia_tiempo:.2f} s. ", end="")
 
 
             # Comprobar si hay una actualización
@@ -58,21 +82,14 @@ def monitorizar_actualizacion_iterativo() -> bool:
             if diferencia_tiempo < diferencia_anterior_segundos:
                 if diferencia_anterior_segundos != 10000: # Ignorar la primera llamada
                     # ¡ACTUALIZACIÓN DETECTADA!
-                    print(f"\n   ¡ACTUALIZACIÓN DETECTADA! ({diferencia_anterior_segundos:.2f}s -> {diferencia_tiempo:.2f}s)")
+                    print(f"\n--- ¡ACTUALIZACIÓN DETECTADA! ({diferencia_anterior_segundos:.2f}s -> {diferencia_tiempo:.2f}s)")
                     return True # Señal de éxito: Propaga True hacia arriba.
 
             # Determinar el intervalo de espera (tiempo de 'sleep')
-            if 0 <= diferencia_tiempo <= 10:
-                sleep_time = 5.0
-            elif 10 < diferencia_tiempo <= 20:
-                sleep_time = 2.0
-            elif 20 < diferencia_tiempo <= 25:
-                sleep_time = 1.0
-            else: # diferencia_tiempo > 25
-                sleep_time = 0.5
+            sleep_time = 0.5 # Al final lo dejamos en 0.5 pa que no se quede pillado aqui
                 
             # Actualizar el valor anterior y pausar
-            print(f"Próxima verificación en {sleep_time} s...")
+            print(f"--- Próxima verificación en {sleep_time} s...")
             diferencia_anterior_segundos = diferencia_tiempo
             time.sleep(sleep_time)
 
@@ -80,11 +97,11 @@ def monitorizar_actualizacion_iterativo() -> bool:
             print("\n--- Monitoreo detenido por el usuario. ---")
             return False
         except Exception as e:
-            print(f"\n[ERROR CRÍTICO] Ocurrió un error: {e}. Reintentando en 5s.")
+            print(f"\n--- [ERROR CRÍTICO] Ocurrió un error: {e}. Reintentando en 5s.")
             time.sleep(5.0)
             # En un error crítico, reiniciamos la "diferencia anterior"
             diferencia_anterior_segundos = 10000 
-            continue
+    """
     
 def leer_ultimas_muestras_zarr(zarr_path: str, sample: str, last_samples: int) -> pd.DataFrame:
     """
@@ -112,14 +129,14 @@ def leer_ultimas_muestras_zarr(zarr_path: str, sample: str, last_samples: int) -
         
         # Acceder al grupo de la pista
         if sample not in root:
-            print(f"[ERROR] La pista '{sample}' no se encuentra en Zarr en la ruta '{sample}'.")
+            print(f"--- [ERROR] La pista '{sample}' no se encuentra en Zarr en la ruta '{sample}'.")
             return empty_df
             
         grp = root[sample]
         
         # Verificar que los datasets 'time_ms' y 'value' existan
         if "time_ms" not in grp or "value" not in grp:
-            print(f"[ERROR] Datasets 'time_ms' o 'value' faltan en el grupo '{sample}'.")
+            print(f"--- [ERROR] Datasets 'time_ms' o 'value' faltan en el grupo '{sample}'.")
             return empty_df
             
         ds_time = grp["time_ms"]
@@ -147,19 +164,19 @@ def leer_ultimas_muestras_zarr(zarr_path: str, sample: str, last_samples: int) -
         return df
 
     except FileNotFoundError:
-        print(f"[ERROR] El archivo Zarr no se encontró en la ruta: {zarr_path}")
+        print(f"--- [ERROR] El archivo Zarr no se encontró en la ruta: {zarr_path}")
         return empty_df
     except Exception as e:
-        print(f"[ERROR CRÍTICO] Ocurrió un error al leer Zarr: {e}")
+        print(f"--- [ERROR CRÍTICO] Ocurrió un error al leer Zarr: {e}")
         return empty_df
 
 
 def main_to_loop(algoritmes_escollits):
     try:
-        print(f"--- Iniciando Monitoreo Recursivo para los Tracks ---")
+        #print(f"--- Iniciando Monitoreo Recursivo para los Tracks ---")
 
         if monitorizar_actualizacion_iterativo(): # Esto es un await de toda la vida
-            print("\n¡ACTUALIZACIÓN DETECTADA !")
+            print("\n--- ¡ACTUALIZACIÓN DETECTADA !")
             
             metadatos_general = read_group_zattrs(STORE_PATH, "") # Leer el .zattrs del root
             tracks = get_track_names_simplified(STORE_PATH) # Obtener nombre de variables del Zarr (sean actualizados o no, aun no podemos distingirlos)
@@ -176,29 +193,27 @@ def main_to_loop(algoritmes_escollits):
                 metadatos_track = read_group_zattrs(STORE_PATH, Frame + track) # Leer el .zattrs de la varible concreta
                 if metadatos_track is not None:
                     if metadatos_track.get("last_updated") == metadatos_general.get("last_updated"): # Comparar la ultima actualizacion, para saber si se ha actualizado la variable o no 
-                        print(f"   - La track '{track}' fue actualizada.")
-                        print(f"        - Ultima actualización contiene datos de {metadatos_track.get('last_update_secs')} segundos que se representan en {metadatos_track.get('last_update_samples')} samples")
+                        print(f"--- La track '{track}' fue actualizada ({metadatos_track.get('last_update_secs')} muestras).")
+                        #print(f"        - Ultima actualización contiene datos de {metadatos_track.get('last_update_secs')} segundos que se representan en {metadatos_track.get('last_update_samples')} samples")
                         sample = Frame + track # Juntar el path completo del track dentro del zarr
                         df_track = leer_ultimas_muestras_zarr(STORE_PATH, sample, metadatos_track.get('last_update_samples')) # Leer las ultimas muestras del zarr
                         dataframes[sample.removeprefix("signals/")] = df_track # Guardar el dataframe en un diccionario (Lista de dataframes), quitando el prefijo "signals/"
-                        print(f"        - Se guarda el dataframe en la lista.")
+                        #print(f"        - Se guarda el dataframe en la lista.")
                         tracks_updated.append(track) # Guardar el nombre de la variable actualizada
                     else:
-                        print(f"   - La track '{track}' NO fue actualizada.")
+                        print(f"--- La track '{track}' NO fue actualizada.")
                     
-            print(f" - Todos los dataframes actualizados") 
-            print(f" Lista de variables recogidas: {tracks_updated}")
+            print(f"--- Todos los dataframes actualizados") 
+            print(f"--- Lista de variables recogidas: {tracks_updated}")
             # list_available = check_availability('Intellivue/' + tracks_updated) # Comprobar que algoritmos se pueden calcular con las variables actualizadas
-            print(f" Algoritmos que se puedan calcular: {algoritmes_escollits}")
+            print(f"--- Algoritmos que se puedan calcular: {algoritmes_escollits}")
             
             results = {}
 
-# Falten per importar: La llibreria dels BPV i HRV (falta la llibreria aquella, ecgdetectors) i icp models (adaptacio zarr)
-
-            for algoritme in algoritmes_escollits: # Por cada algoritmo disponible, importarlo i calcularlo
+            for algoritme in algoritmes_escollits: # Por cada algoritmo disponible, importarlo i calcularlo, menys els que tenen buffers
                 match algoritme:
-                    case 'BRS':
-                        results['BRS'] = BRS.compute(dataframes)
+                    #case 'BRS':
+                        #results['BRS'] = BRS.compute(dataframes)
                     case 'Blood Pressure Variability':
                         from Algorithms.blood_pressure_variability import BloodPressureVariability      # Comentar esto y descomentar las lineas del BPV del inicio del doc
                         results['Blood Pressure Variability'] = BloodPressureVariability(dataframes).values # Comentar esto y descomentar siguiente linea
@@ -235,9 +250,9 @@ def main_to_loop(algoritmes_escollits):
                         from Algorithms.temp_comparison import TempComparison
                         results['Temp Comparison'] = TempComparison(dataframes).values
                     case _:
-                        print(f"Advertencia: Algoritmo '{algoritme}' no encontrado")
+                        print(f"--- Advertencia: Algoritmo '{algoritme}' no encontrado")
                         pass
-            print(f"Resultados de los algoritmos: {results}")
+            print(f"--- Resultados de los algoritmos: {results}")
             return results
         else:
             return None # En caso que falle el monitoreo o se interrumpa
