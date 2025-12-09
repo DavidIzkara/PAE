@@ -20,7 +20,7 @@ class RoxIndex:
         # Deletes the nan values
         sato2_clean = sato2[sato2[sato2_track].notna()]
         fio2_clean = fio2[fio2[fio2_track].notna()]
-        
+
         # Creates a new dataframe with timestamp | sato2_value | fio2_value where both values come from the same timestamp
         pre_ri= sato2_clean.merge(fio2_clean, on="Time")
 
@@ -28,7 +28,7 @@ class RoxIndex:
         self.values = pd.DataFrame({'Timestamp': pre_ri["Time"], 'RI': pre_ri[sato2_track] / pre_ri[fio2_track]})
 
 
-    def _from_df(self, list_dataframe: dict[pd.DataFrame]):
+    def _from_df(self, list_dataframe: dict[str, pd.DataFrame]):
         # Get a Dataframes dictionary
         sato2_track='Intellivue/PLETH_SAT_O2'
         fio2_track='Intellivue/FiO2'
@@ -39,7 +39,7 @@ class RoxIndex:
         # Deletes the nan values
         sato2_clean = sato2[sato2["value"].notna()]
         fio2_clean = fio2[fio2["value"].notna()]
-        
+
         # Creates a new dataframe with timestamp | sato2_value | fio2_value where both values come from the same timestamp
         pre_ri = sato2_clean.merge(fio2_clean, on="time_ms")
 

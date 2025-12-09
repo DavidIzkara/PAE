@@ -3,7 +3,7 @@ from vitaldb import VitalFile
 import os
 import pandas as pd
 
-from check_avalability import check_availability
+from check_availability import check_availability
 from shock_index import ShockIndex
 from driving_pressure import DrivingPressure
 from dynamic_compliance import DynamicCompliance
@@ -53,7 +53,7 @@ possible_list = check_availability(tracks)
 
 results = {}
 for algorithm in possible_list:
-    
+
     if algorithm == 'Shock Index':
         results['Shock Index'] = ShockIndex(vf).values
         print(type(results['Shock Index']))
@@ -73,7 +73,7 @@ for algorithm in possible_list:
         results['Cardiac Power Output'] = CardiacPowerOutput(vf).values
     elif algorithm == 'Effective Arterial Elastance':
         results['Effective Arterial Elastance'] = EffectiveArterialElastance(vf).values
-    
+
     '''
     with pd.ExcelWriter("salida.xlsx") as writer:
         for nombre, tabla in results.items():

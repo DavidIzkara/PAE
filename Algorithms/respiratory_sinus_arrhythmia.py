@@ -2,12 +2,12 @@ import numpy as np
 import pandas as pd
 from scipy.signal import find_peaks
 import vitaldb
-from util_AL import compute_rr 
+from util_AL import compute_rr
 
 class RespiratorySinusArrhythmia:
-    
+
     def __init__(self):
-        
+
         self.last_resp_val = []
         self.last_resp_time = []
         self.last_rr_val = []
@@ -20,23 +20,23 @@ class RespiratorySinusArrhythmia:
         else:
             self._from_df(data)
         return self.values
-    
+
     def _from_vf(self,vf):
         # Get all available track names in the VitalFile
         available_tracks = vf.get_track_names()
 
         # Try to find heart rate wave
         hr_track = next(
-            (t for t in available_tracks if 'Intellivue/ECG_I' in t), 
-            next((t for t in available_tracks if 'Intellivue/ECG_II' in t),     
-                 next((t for t in available_tracks if 'Intellivue/ECG_III' in t), 
-                      next((t for t in available_tracks if 'Intellivue/ECG_V' in t), None)))) 
+            (t for t in available_tracks if 'Intellivue/ECG_I' in t),
+            next((t for t in available_tracks if 'Intellivue/ECG_II' in t),
+                 next((t for t in available_tracks if 'Intellivue/ECG_III' in t),
+                      next((t for t in available_tracks if 'Intellivue/ECG_V' in t), None))))
 
         # Try to find respiratory wave
         resp_track = next(
             (t for t in available_tracks if 'Intellivue/RESP' in t),
             next((t for t in available_tracks if 'Intellivue/CO2' in t), None))
-        
+
         # Convert the signals to NumPy arrays (ECG -> RR)
         hr = vf.to_pandas(track_names=hr_track, interval=1/500, return_timestamp=True)
 
@@ -48,16 +48,16 @@ class RespiratorySinusArrhythmia:
 
         self.values = self.compute_rsa(rr, resp)
 
-    def _from_df(self,list_dataframe: list[pd.DataFrame]):
+    def _from_df(self,list_dataframe: dict[str, pd.DataFrame]):
         available_tracks = list_dataframe.keys()
 
         # Try to find heart rate wave
         hr_track = next(
-            (t for t in available_tracks if 'Intellivue/ECG_I' in t), 
-            next((t for t in available_tracks if 'Intellivue/ECG_II' in t),     
-                 next((t for t in available_tracks if 'Intellivue/ECG_III' in t), 
-                      next((t for t in available_tracks if 'Intellivue/ECG_V' in t), None)))) 
-        
+            (t for t in available_tracks if 'Intellivue/ECG_I' in t),
+            next((t for t in available_tracks if 'Intellivue/ECG_II' in t),
+                 next((t for t in available_tracks if 'Intellivue/ECG_III' in t),
+                      next((t for t in available_tracks if 'Intellivue/ECG_V' in t), None))))
+        assert hr_track is not None
         hr_raw = list_dataframe[hr_track]
         hr = pd.DataFrame({hr_track: hr_raw["value"], 'Time': hr_raw["time_ms"] })
         rr = compute_rr(hr, hr_track)
@@ -67,6 +67,7 @@ class RespiratorySinusArrhythmia:
             (t for t in available_tracks if 'Intellivue/RESP' in t),
             next((t for t in available_tracks if 'Intellivue/CO2' in t), None))
 
+        assert resp_track is not None
         resp_raw = list_dataframe[resp_track]
         resp = pd.DataFrame({'value': resp_raw["value"], 'Time': resp_raw["time_ms"]})
 
@@ -79,19 +80,19 @@ class RespiratorySinusArrhythmia:
 
         new_rr_vals = rr_intervals['rr'].values.tolist()
         # Usamos Time_fin_ms como referencia para el RR
-        new_rr_times = rr_intervals['Time_fin_ms'].values.tolist() 
+        new_rr_times = rr_intervals['Time_fin_ms'].values.tolist()
 
         #Concatenar con los datos en buffer
         resp_vals = np.array(self.last_resp_val + new_resp_vals)
         resp_times = np.array(self.last_resp_time + new_resp_times)
-        
+
         rr_vals = np.array(self.last_rr_val + new_rr_vals)
         rr_times = np.array(self.last_rr_time + new_rr_times)
 
-        peaks_idx, _ = find_peaks(resp_vals, distance=250) 
-        
+        peaks_idx, _ = find_peaks(resp_vals, distance=250)
+
         results = []
-        
+
         # Necesitamos al menos 2 picos para formar un ciclo cerrado
         if len(peaks_idx) > 1:
             for i in range(len(peaks_idx) - 1):
@@ -107,7 +108,7 @@ class RespiratorySinusArrhythmia:
                 if len(rr_cycle) > 0:
                     rsa_val = np.max(rr_cycle) - np.min(rr_cycle)
                     results.append([t_start, t_end, rsa_val])
-            
+
             # El último pico detectado (peaks_idx[-1]) es el inicio del siguiente ciclo.
             last_peak_idx = peaks_idx[-1]
             last_peak_time = resp_times[last_peak_idx]
