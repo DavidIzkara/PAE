@@ -1,6 +1,6 @@
 import numpy as np
 import pandas as pd
-from ecgdetectors import Detectors
+from utils_AL import Detectors
 
 def compute_rr(signal, track):
 

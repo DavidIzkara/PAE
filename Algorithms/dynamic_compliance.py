@@ -29,11 +29,11 @@ class DynamicCompliance:
         pre_dc= tv_clean.merge(pip_clean, on="Time").merge(peep_clean, on="Time")
 
         #Creates the DC dataframe: Timestamp | DC_value
-        self.values = {'Timestamp': pre_dc["Time"], 'DC': (pre_dc[tv_track] / (pre_dc[pip_track] - pre_dc[peep_track]))}
+        self.values = pd.DataFrame({'Timestamp': pre_dc["Time"], 'DC': (pre_dc[tv_track] / (pre_dc[pip_track] - pre_dc[peep_track]))})
 
 
-    def _from_df(self, list_dataframe: list[pd.DataFrame]):
-        #Se recibe una lista de dataframes
+    def _from_df(self, list_dataframe: dict[pd.DataFrame]):
+        # Get a Dataframes dictionary
         
         tv = list_dataframe['Intellivue/TV_EXP'] 
         pip = list_dataframe['Intellivue/PIP_CMH2O']
@@ -44,9 +44,8 @@ class DynamicCompliance:
         pip_clean = pip[pip["value"].notna()]
         peep_clean = peep[peep["value"].notna()]
 
-        # Creates a new dataframe with timestamp | tv_value | pip_value | peep_value where both values come from the same absolute timestamp
+        # Creates a new dataframe with timestamp | tv_value | pip_value | peep_value where the 3 values come from the same timestamp
         pre_dc = tv_clean.merge(pip_clean, on="time_ms").merge(peep_clean, on="time_ms")
-        print(pre_dc)
 
         #Creates the DP dataframe: Timestamp | DC_value
         self.values = pd.DataFrame({'Timestamp': pre_dc["time_ms"], 'DC': pre_dc["value_x"] / (pre_dc["value_y"] - pre_dc["value"])}) 

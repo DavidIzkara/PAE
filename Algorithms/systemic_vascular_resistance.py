@@ -32,16 +32,16 @@ class SystemicVascularResistance:
         cvp_clean = cvp[cvp[cvp_track].notna()]
         
         co = CardiacOutput(vf).values
-        # Creates a new dataframe with timestamp | mean_value | cvp_value | co_value where both values come from the same timestamp
+        # Creates a new dataframe with timestamp | mean_value | cvp_value | co_value where the 3 values come from the same timestamp
         pre_svr= mean_clean.merge(cvp_clean, on="Time").merge(co, left_on="Time", right_on = 'Timestamp')
 
         #Creates the SVR dataframe: Timestamp | SVR_value
-        self.values = {'Timestamp': pre_svr["Time"], 'SVR': ((pre_svr[mean_track] - pre_svr[cvp_track])*80)/pre_svr['CO']} 
+        self.values = pd.DataFrame({'Timestamp': pre_svr["Time"], 'SVR': ((pre_svr[mean_track] - pre_svr[cvp_track])*80)/pre_svr['CO']})
 
 
-    def _from_df(self, list_dataframe: list[pd.DataFrame]):
-        #Se recibe una lista de dataframes
-        #Se sacan los indices, que son los nombres de las variables
+    def _from_df(self, list_dataframe: dict[pd.DataFrame]):
+        # Get a Dataframes dictionary
+        # Get the track names
         available_tracks = list_dataframe.keys()
 
         # Try to find mean pressure tracks
@@ -61,11 +61,11 @@ class SystemicVascularResistance:
         cvp_clean = cvp[cvp["value"].notna()]
         
         co = CardiacOutput(list_dataframe).values
-        # Creates a new dataframe with timestamp | mean_value | cvp_value | co_value where both values come from the same timestamp
+        # Creates a new dataframe with timestamp | mean_value | cvp_value | co_value where the 3 values come from the same timestamp
         pre_svr= mean_clean.merge(cvp_clean, on="time_ms").merge(co, left_on="time_ms", right_on = 'Timestamp')
 
         #Creates the SVR dataframe: Timestamp | SVR_value
-        self.values = {'Timestamp': pre_svr["time_ms"], 'SVR': ((pre_svr["value_x"] - pre_svr["value_y"])*80)/pre_svr['CO']} 
+        self.values = pd.DataFrame({'Timestamp': pre_svr["time_ms"], 'SVR': ((pre_svr["value_x"] - pre_svr["value_y"])*80)/pre_svr['CO']}) 
 
 #Calculates Systemic Vascular Resistance using Mean Arterial Pressure, Central Venous Pressure, and Cardiac Output.
 #Handles multiple possible mean arterial pressure track names for robustness.

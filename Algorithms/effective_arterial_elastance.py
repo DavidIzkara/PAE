@@ -36,12 +36,12 @@ class EffectiveArterialElastance:
         pre_eae= sys_clean.merge(bld_clean, on="Time")
 
         #Creates the EAE dataframe: Timestamp | EAE_value
-        self.values = {'Timestamp': pre_eae["Time"], 'EAE': (0.9 * pre_eae[sys_track]) / pre_eae[bld_track]} 
+        self.values = pd.DataFrame({'Timestamp': pre_eae["Time"], 'EAE': (0.9 * pre_eae[sys_track]) / pre_eae[bld_track]})
 
 
-    def _from_df(self, list_dataframe: list[pd.DataFrame]):
-        #Se recibe una lista de dataframes
-        #Se sacan los indices, que son los nombres de las variables
+    def _from_df(self, list_dataframe: dict[pd.DataFrame]):
+        # Get a Dataframes dictionary
+        # Get the track names
         available_tracks = list_dataframe.keys()
 
          # Try to find systolic pressure tracks
@@ -66,4 +66,4 @@ class EffectiveArterialElastance:
         pre_eae = sys_clean.merge(bld_clean, on="time_ms")
 
         #Creates the EAE dataframe: Timestamp | EAE_value
-        self.values = {'Timestamp': pre_eae["time_ms"], 'EAE': (0.9 * pre_eae["value_x"]) / pre_eae["value_y"]} 
+        self.values = pd.DataFrame({'Timestamp': pre_eae["time_ms"], 'EAE': (0.9 * pre_eae["value_x"]) / pre_eae["value_y"]})

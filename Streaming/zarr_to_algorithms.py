@@ -5,12 +5,27 @@ import time
 import numpy as np
 import pandas as pd
 
-from Streaming.utils_Streaming import OUTPUT_DIR
-from Zarr.utils_zarr_corrected import STORE_PATH, leer_zattrs_de_grupo, FRAME_SIGNAL_DEMO, FRAME_SIGNAL, FORMATO_TIMESTAMP, get_track_names_simplified, escribir_prediccion, ALGORITMOS_VISIBLES
+from Zarr.utils_zarr_corrected import STORE_PATH, read_group_zattrs, FRAME_SIGNAL_DEMO, FRAME_SIGNAL, TIMESTAMP_FORMAT, get_track_names_simplified, write_prediction, VISIBLE_ALGORITHMS
 
 DEMO = False
 
-def monitorizar_actualizacion_recursivo(diferencia_anterior_segundos: float = 10000) -> bool:
+# --- Inicializacion de los algoritmos (los que lo necessitan) ---
+
+from Algorithms.baroreflex_sensitivity import BaroreflexSensitivity
+BRS = BaroreflexSensitivity()
+
+#from Algorithms.blood_pressure_variability import BloodPressureVariability 
+#BPV = BloodPressureVariability()
+
+from Algorithms.heart_rate_variability import HeartRateVariability 
+HRV = HeartRateVariability()
+
+from Algorithms.respiratory_sinus_arrhythmia import RespiratorySinusArrhythmia
+RSA = RespiratorySinusArrhythmia()
+
+# ----------------------------------------------------------------
+
+def monitorizar_actualizacion_iterativo() -> bool:
     """
     Sondea de forma recursiva una pista y ajusta el intervalo de espera.
 
@@ -21,62 +36,56 @@ def monitorizar_actualizacion_recursivo(diferencia_anterior_segundos: float = 10
     Returns:
         True si se detecta una actualización, False si se interrumpe o falla.
     """
-    try:
-        # Obtener y convertir el timestamp
-        metadatos = leer_zattrs_de_grupo(STORE_PATH, "")
-        last_updated_str = metadatos.get('last_updated')
+    diferencia_anterior_segundos = 10000 # Inicialmente un valor alto, para poder detectar el canvio
+    while True:
+        try:
+            # Obtener y convertir el timestamp
+            metadatos = read_group_zattrs(STORE_PATH, "")
+            last_updated_str = metadatos.get('last_updated')
 
-        if not last_updated_str:
-            print(f"[ERROR] Clave 'last_updated' no encontrada. Esperando 5s y reintentando...")
+            if not last_updated_str:
+                print(f"[ERROR] Clave 'last_updated' no encontrada. Esperando 5s y reintentando...")
+                time.sleep(5.0)
+                continue
+
+            # Convertir la cadena a objeto datetime y calcular la diferencia
+            diferencia_tiempo = time.mktime(time.strptime(time.strftime(TIMESTAMP_FORMAT), TIMESTAMP_FORMAT)) - time.mktime(time.strptime(last_updated_str, TIMESTAMP_FORMAT))
+            print(f"Tiempo sin actualizar: {diferencia_tiempo:.2f} s. ", end="")
+
+
+            # Comprobar si hay una actualización
+            # Si la diferencia actual es menor que la anterior, significa que 'last_updated' se actualizó.
+            if diferencia_tiempo < diferencia_anterior_segundos:
+                if diferencia_anterior_segundos != 10000: # Ignorar la primera llamada
+                    # ¡ACTUALIZACIÓN DETECTADA!
+                    print(f"\n   ¡ACTUALIZACIÓN DETECTADA! ({diferencia_anterior_segundos:.2f}s -> {diferencia_tiempo:.2f}s)")
+                    return True # Señal de éxito: Propaga True hacia arriba.
+
+            # Determinar el intervalo de espera (tiempo de 'sleep')
+            if 0 <= diferencia_tiempo <= 10:
+                sleep_time = 5.0
+            elif 10 < diferencia_tiempo <= 20:
+                sleep_time = 2.0
+            elif 20 < diferencia_tiempo <= 25:
+                sleep_time = 1.0
+            else: # diferencia_tiempo > 25
+                sleep_time = 0.5
+                
+            # Actualizar el valor anterior y pausar
+            print(f"Próxima verificación en {sleep_time} s...")
+            diferencia_anterior_segundos = diferencia_tiempo
+            time.sleep(sleep_time)
+
+        except KeyboardInterrupt:
+            print("\n--- Monitoreo detenido por el usuario. ---")
+            return False
+        except Exception as e:
+            print(f"\n[ERROR CRÍTICO] Ocurrió un error: {e}. Reintentando en 5s.")
             time.sleep(5.0)
-            return monitorizar_actualizacion_recursivo(diferencia_anterior_segundos) # Volver a llamar
-
-        # Convertir la cadena a objeto datetime y calcular la diferencia
-        diferencia_tiempo = time.mktime(time.strptime(time.strftime(FORMATO_TIMESTAMP), FORMATO_TIMESTAMP)) - time.mktime(time.strptime(last_updated_str, FORMATO_TIMESTAMP))
-        print(f"Tiempo sin actualizar: {diferencia_tiempo:.2f} s. ", end="")
-
-
-        # Comprobar si hay una actualización
-        # Si la diferencia actual es menor que la anterior, significa que 'last_updated' se actualizó.
-        if diferencia_tiempo < diferencia_anterior_segundos:
-            if diferencia_anterior_segundos != 10000: # Ignorar la primera llamada
-                 # ¡ACTUALIZACIÓN DETECTADA!
-                 print(f"\n   ¡ACTUALIZACIÓN DETECTADA! ({diferencia_anterior_segundos:.2f}s -> {diferencia_tiempo:.2f}s)")
-                 return True # Señal de éxito: Propaga True hacia arriba.
-
-        # Determinar el intervalo de espera (tiempo de 'sleep')
-        if 0 <= diferencia_tiempo <= 10:
-            sleep_time = 5.0
-        elif 10 < diferencia_tiempo <= 20:
-            sleep_time = 2.0
-        elif 20 < diferencia_tiempo <= 25:
-            sleep_time = 1.0
-        else: # diferencia_tiempo > 25
-            sleep_time = 0.5
-            
-        # Actualizar el valor anterior y pausar
-        print(f"Próxima verificación en {sleep_time} s...")
-        time.sleep(sleep_time)
-
-        # Llamada Recursiva
-        # Si la llamada recursiva retorna True, nosotros también retornamos True.
-        if monitorizar_actualizacion_recursivo(diferencia_tiempo):
-            return True
-        
-        return False # Esto se alcanzaría si una rama de la recursión se agota o se detiene. (La recursividad devuelve False, nosotros tambien tenemos que hacerlo)
-
-    except RecursionError:
-        print("\n[PELIGRO] Se alcanzó el límite de profundidad de recursión de Python. Deteniendo el monitoreo.")
-        return False
-    except KeyboardInterrupt:
-        print("\n--- Monitoreo detenido por el usuario. ---")
-        return False
-    except Exception as e:
-        print(f"\n[ERROR CRÍTICO] Ocurrió un error: {e}. Deteniendo el monitoreo.")
-        return False
+            # En un error crítico, reiniciamos la "diferencia anterior"
+            diferencia_anterior_segundos = 10000 
+            continue
     
-
-
 def leer_ultimas_muestras_zarr(zarr_path: str, sample: str, last_samples: int) -> pd.DataFrame:
     """
     Recupera las últimas 'last_samples' muestras (time_ms y value) de una pista
@@ -149,10 +158,10 @@ def main_to_loop(algoritmes_escollits):
     try:
         print(f"--- Iniciando Monitoreo Recursivo para los Tracks ---")
 
-        if monitorizar_actualizacion_recursivo(): # Esto es un await de toda la vida
+        if monitorizar_actualizacion_iterativo(): # Esto es un await de toda la vida
             print("\n¡ACTUALIZACIÓN DETECTADA !")
             
-            metadatos_general = leer_zattrs_de_grupo(STORE_PATH, "") # Leer el .zattrs del root
+            metadatos_general = read_group_zattrs(STORE_PATH, "") # Leer el .zattrs del root
             tracks = get_track_names_simplified(STORE_PATH) # Obtener nombre de variables del Zarr (sean actualizados o no, aun no podemos distingirlos)
 
             tracks_updated = []
@@ -164,7 +173,7 @@ def main_to_loop(algoritmes_escollits):
                 Frame = FRAME_SIGNAL
             
             for track in tracks:
-                metadatos_track = leer_zattrs_de_grupo(STORE_PATH, Frame + track) # Leer el .zattrs de la varible concreta
+                metadatos_track = read_group_zattrs(STORE_PATH, Frame + track) # Leer el .zattrs de la varible concreta
                 if metadatos_track is not None:
                     if metadatos_track.get("last_updated") == metadatos_general.get("last_updated"): # Comparar la ultima actualizacion, para saber si se ha actualizado la variable o no 
                         print(f"   - La track '{track}' fue actualizada.")
@@ -189,11 +198,11 @@ def main_to_loop(algoritmes_escollits):
             for algoritme in algoritmes_escollits: # Por cada algoritmo disponible, importarlo i calcularlo
                 match algoritme:
                     case 'BRS':
-                        from Algorithms.baroreflex_sensitivity import BaroreflexSensitivity
-                        results['BRS'] = BaroreflexSensitivity(dataframes).values
-                    # case 'Blood Pressure Variability':
-                    #     from Algorithms.blood_pressure_variability import BloodPressureVariability 
-                    #     results['Blood Pressure Variability'] = BloodPressureVariability(dataframes).values
+                        results['BRS'] = BRS.compute(dataframes)
+                    case 'Blood Pressure Variability':
+                        from Algorithms.blood_pressure_variability import BloodPressureVariability      # Comentar esto y descomentar las lineas del BPV del inicio del doc
+                        results['Blood Pressure Variability'] = BloodPressureVariability(dataframes).values # Comentar esto y descomentar siguiente linea
+                        #results['Blood Pressure Variability'] = BPV.compute(dataframes)
                     case 'Cardiac Output':
                         from Algorithms.cardiac_output import CardiacOutput
                         results['Cardiac Output'] = CardiacOutput(dataframes).values
@@ -209,12 +218,10 @@ def main_to_loop(algoritmes_escollits):
                     case 'Effective Arterial Elastance':   
                         from Algorithms.effective_arterial_elastance import EffectiveArterialElastance
                         results['Effective Arterial Elastance'] = EffectiveArterialElastance(dataframes).values
-                    # case 'Heart Rate Variability':
-                    #     from Algorithms.heart_rate_variability import HeartRateVariability 
-                    #     results['Heart Rate Variability'] = HeartRateVariability(dataframes).values
+                    case 'Heart Rate Variability':
+                        results['Heart Rate Variability'] = HRV.compute(dataframes)
                     case 'RSA':
-                        from Algorithms.respiratory_sinus_arrhythmia import RespiratorySinusArrhythmia
-                        results['RSA'] = RespiratorySinusArrhythmia(dataframes).values
+                        results['RSA'] = RSA.compute(dataframes)
                     case 'ROX Index':
                         from Algorithms.rox_index import RoxIndex
                         results['ROX Index'] = RoxIndex(dataframes).values
@@ -232,9 +239,12 @@ def main_to_loop(algoritmes_escollits):
                         pass
             print(f"Resultados de los algoritmos: {results}")
             return results
-                    
+        else:
+            return None # En caso que falle el monitoreo o se interrumpa
+
     except KeyboardInterrupt:
         print("\n--- Monitoreo detenido por el usuario. ---")
+        return None
 
 if __name__ == "__main__":
     try:
@@ -246,12 +256,12 @@ if __name__ == "__main__":
                 time_ms_array = df_result['Timestamp'].values
                 
                 visible = False # Bool que dicta si se puede enseñar la función
-                if Nombre_algoritmo in ALGORITMOS_VISIBLES: # Depende de si aparece en la lista de algoritmos visibles (Zarr/utils_zarr_corrected.py)
+                if Nombre_algoritmo in VISIBLE_ALGORITHMS: # Depende de si aparece en la lista de algoritmos visibles (Zarr/utils_zarr_corrected.py)
                     visible = True
                 
                 for track_name in value_columns:
                     value_array = df_result[track_name].values
-                    escribir_prediccion(STORE_PATH, track_name, time_ms_array, value_array, modelo_info={"model": Nombre_algoritmo, "visibilidad": visible})
+                    write_prediction(STORE_PATH, track_name, time_ms_array, value_array, modelo_info={"model": Nombre_algoritmo, "visibilidad": visible})
 
     except KeyboardInterrupt:
         print("\n--- Monitoreo detenido por el usuario. ---")

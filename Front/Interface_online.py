@@ -6,36 +6,15 @@ from tkinter import ttk
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 import matplotlib.pyplot as plt
 
-# Importa función de Algorithms
-from Algorithms.check_availability import check_availability
-
 
 class RealTimeApp(tk.Tk):
-    def __init__(self):
+    def __init__(self, available_algorithms_list):
         super().__init__()
         self.title("Visualización en Tiempo Real")
         self.geometry("1650x850")
 
-        # ------------------------------------------------------------------
-        # 1) Obtener las tracks disponibles (AQUÍ LUEGO PONDRÁS TUS TRACKS REALES)
-        #   Por ahora, ejemplo mínimo con algunas keys para que veas que funciona.
-        #   Sustituye este dict por el que te llegue de Streaming/Zarr/etc.
-        # ------------------------------------------------------------------
-        # Ejemplo de tracks SIMPLIFICADOS (sin prefijo vendor) —
-        # coinciden con las keys que espera `check_availability`.
-        example_tracks = [
-            "ECG_HR",
-            "ABP_SYS",
-            "PPLAT_CMH2O",
-            "PEEP_CMH2O",
-            "TV_EXP",
-            "PIP_CMH2O",
-            "PLETH_SAT_O2",
-            "FiO2",
-        ]
-
         # 2) Llamar a check_availability para saber qué algoritmos se pueden calcular
-        self.available_algorithms = check_availability(example_tracks)
+        self.available_algorithms = available_algorithms_list##check_availability(example_tracks)
         # Si por lo que sea no hay ninguno, evita que los combo queden vacíos
         if not self.available_algorithms:
             self.available_algorithms = ["Sin algoritmos disponibles"]
@@ -46,6 +25,7 @@ class RealTimeApp(tk.Tk):
         selector_frame = tk.Frame(self)
         selector_frame.pack(pady=1)
 
+        self.current_selections = []
         self.selected_vars = []
         for i in range(4):
             label = ttk.Label(selector_frame, text=f"Algoritmo gráfica {i+1}:")
@@ -62,9 +42,10 @@ class RealTimeApp(tk.Tk):
             # Valor por defecto: primer algoritmo disponible
             combo.current(0)
             self.selected_vars.append(combo)
+            self.current_selections.append(combo.get())
 
-        for combo in self.selected_vars:
-            combo.bind("<<ComboboxSelected>>", lambda e: self.draw_plots())
+            combo.bind("<<ComboboxSelected>>", lambda e, index=i: self.on_combobox_change(event = e, index = index))
+            
 
         # Botón visible para volver al selector de modo sin cerrar la ventana
         btn_back = tk.Button(selector_frame, text='Volver', width=12, command=self.on_close)
@@ -82,72 +63,125 @@ class RealTimeApp(tk.Tk):
 
         self.canvas.mpl_connect("button_press_event", self.on_graph_click)
 
-        self._stop_flag = False
+        self.algorithms_results_data = {}
         # id del callback `after` para poder cancelarlo al cerrar
         self._after_id = None
         self.draw_plots()
+
+        self._stop_flag = False
         self.refresh_loop()
         # Captura cierre de la ventana principal para parar el loop
         self.protocol("WM_DELETE_WINDOW", self.on_close)
 
-    def draw_plots(self):
+    def update_data_and_plots(self, algorithms_results: dict):
+        self.algorithms_results_data = algorithms_results
+
+        print("Graficos listos para actualizar con datos REALES de Zarr.")
+
+        self.draw_plots(use_real_data=True)
+
+    def on_combobox_change(self, event, index):
+
+        current_combo = self.selected_vars[index]
+        new_value = current_combo.get()
+
+        previous_value = self.current_selections[index]
+
+        if new_value != previous_value:
+            self.current_selections[index] = new_value
+
+            print(f"✅ Combobox {index+1} cambió de '{previous_value}' a '{new_value}'.")            
+            print(f"   self.current_selections ahora es: {self.current_selections}")
+
+            self.draw_plots()
+        else:
+            print(f"⚠️ Combobox {index+1} seleccionado, pero el valor sigue siendo '{new_value}'. No se hace nada.")
+
+    def draw_plots(self, use_real_data = False):
         for i in range(2):
             for j in range(2):
+
                 ax = self.axs[i, j]
                 ax.clear()
-
                 algo_name = self.selected_vars[i * 2 + j].get()
-
-                # ----------------------------------------------------------
-                # AQUÍ es donde enlazarás con cada algoritmo real.
-                # De momento, simplemente cambiamos la pendiente/forma para
-                # visualizar que cada curva está asociada a un algoritmo.
-                # ----------------------------------------------------------
-                x = [1, 2, 3, 4, 5]
-
-                # Ejemplo muy simple: factor según el índice + algo por nombre
-                base_factor = i * 2 + j + 1
-                # Diferenciamos visualmente por el nombre del algoritmo
-                if "Shock" in algo_name:
-                    # Monótono linear
-                    factor = base_factor * 1.0
-                    y = [factor * v for v in x]
-                elif "Driving" in algo_name:
-                    # Más pronunciado
-                    factor = base_factor * 1.5
-                    y = [factor * v ** 1.2 for v in x]
-                elif "Dynamic" in algo_name:
-                    # Curva menos pronunciada
-                    factor = base_factor * 0.8
-                    y = [factor * (v ** 0.9) for v in x]
-                elif "ROX" in algo_name or "ROX Index" in algo_name:
-                    # Curva con pequeño decrecimiento
-                    factor = base_factor * 1.1
-                    y = [factor * (6 - v) * 0.5 for v in x]
-                elif "Temp" in algo_name:
-                    # Oscilación pequeña (ejemplo de comparación térmica)
-                    factor = base_factor * 0.6
-                    y = [factor * (1 + 0.2 * ((-1) ** v)) for v in x]
-                elif "Cardiac" in algo_name:
-                    # Otra forma para diferenciar
-                    factor = base_factor * 1.3
-                    y = [factor * (v + 0.5 * (i + j)) for v in x]
-                else:
-                    # Default: lineal simple
-                    factor = base_factor
-                    y = [factor * v for v in x]
-
-                ax.plot(x, y, marker='o')
                 ax.set_title(algo_name)
 
+                if use_real_data and algo_name in self.algorithms_results_data:
+                    df_result = self.algorithms_results_data[algo_name]
+                    # Asumimos que el DataFrame tiene 'Timestamp' (o 'Time_ini/fin_ms') y una columna de valor
+                    if 'Timestamp' in df_result.columns and len(df_result.columns) > 1:
+                        x = df_result['Timestamp'].values
+                        value_col = [col for col in df_result.columns if col not in ['Timestamp', 'Time_ini_ms', 'Time_fin_ms']][0]
+                        y = df_result[value_col].values
+                        ax.plot(x, y, marker = '.', linestyle = '-')
+                    elif 'Time_ini_ms' in df_result.columns:
+                        x_ini = df_result['Time_ini_ms'].values
+                        y_ini = df_result['Time_fin_ms'].values
+                        value_col = [col for col in df_result.columns if col not in ['Timestamp', 'Time_ini_ms', 'Time_fin_ms']][0]
+                        y = df_result[value_col].values
+                        ax.plot(x_ini, y, marker='x', linestyle='--')
+                    else:
+                        self._plot_mockup(ax, algo_name, i, j)
+                else:
+                    self._plot_mockup(ax, algo_name, i, j)
+
         self.canvas.draw()
+
+    def _plot_mockup(self, ax, algo_name, i, j):
+        """
+        Dibuja datos simulados (mock-up) para mantener el gráfico visible y responsivo.
+        La forma del mock-up depende del nombre del algoritmo.
+        """
+        import numpy as np # Necesitarás este import si no lo tienes globalmente
+        
+        # Datos base de X
+        x = np.linspace(0, 5, 50)
+        base_factor = i * 2 + j + 1 # Factor único basado en la posición del subplot (1 a 4)
+
+        if "Shock" in algo_name:
+            # Simula un crecimiento lineal
+            factor = base_factor * 1.0
+            y = factor * x + np.random.normal(0, 0.1, size=x.size)
+            ax.plot(x, y, color='blue', linestyle='--')
+            
+        elif "Driving" in algo_name:
+            # Simula un crecimiento exponencial o curvo
+            factor = base_factor * 1.5
+            y = factor * (x ** 1.2) + np.random.normal(0, 0.5, size=x.size)
+            ax.plot(x, y, color='red', linestyle='-')
+            
+        elif "Hypoperfusion" in algo_name:
+            # Simula una caída y luego un rebote (forma de U invertida)
+            factor = base_factor * 2.0
+            y = factor * np.sin(x / 2) + factor + np.random.normal(0, 0.2, size=x.size)
+            ax.plot(x, y, color='green', marker='v', markevery=10)
+            
+        elif "Sepsis" in algo_name:
+            # Simula una serie de pasos o valores constantes (alarma)
+            factor = base_factor * 0.5
+            y = np.repeat([factor, factor * 1.2, factor, factor * 1.4], x.size // 4)
+            # Asegurar que el tamaño coincida
+            if y.size < x.size:
+                 y = np.concatenate([y, [y[-1]] * (x.size - y.size)]) 
+            elif y.size > x.size:
+                 y = y[:x.size]
+
+            ax.step(x, y, where='post', color='purple')
+
+        else:
+            # Caso por defecto (crecimiento lineal simple)
+            factor = base_factor
+            y = factor * x + np.random.normal(0, 0.05, size=x.size)
+            ax.plot(x, y, marker='o', markersize=3, linestyle='-', alpha=0.6)
+            
+        ax.set_ylim(0, max(y) * 1.5 if y.size > 0 else 10)
 
     def refresh_loop(self):
         # Si se ha marcado para parar, no hacer nada ni re-programar
         if getattr(self, "_stop_flag", True):
             return
         try:
-            self.draw_plots()
+            pass
         except Exception:
             pass
         try:
