@@ -34,8 +34,8 @@ class RespiratorySinusArrhythmia:
 
         # Try to find respiratory wave
         resp_track = next(
-            (t for t in available_tracks if 'Intellivue/RESP' in t),
-            next((t for t in available_tracks if 'Intellivue/CO2' in t), None))
+            (t for t in available_tracks if 'Intellivue/CO2' in t),
+            next((t for t in available_tracks if 'Intellivue/RESP' in t), None))
         
         # Convert the signals to NumPy arrays (ECG -> RR)
         hr = vf.to_pandas(track_names=hr_track, interval=1/500, return_timestamp=True)
@@ -64,8 +64,8 @@ class RespiratorySinusArrhythmia:
 
         # Try to find respiratory wave
         resp_track = next(
-            (t for t in available_tracks if 'Intellivue/RESP' in t),
-            next((t for t in available_tracks if 'Intellivue/CO2' in t), None))
+            (t for t in available_tracks if 'Intellivue/CO2' in t),
+            next((t for t in available_tracks if 'Intellivue/RESP' in t), None))
 
         resp_raw = list_dataframe[resp_track]
         resp = pd.DataFrame({'value': resp_raw["value"], 'Time': resp_raw["time_ms"]})
