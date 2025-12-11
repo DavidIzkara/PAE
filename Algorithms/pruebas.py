@@ -45,7 +45,7 @@ def find_latest_vital(recordings_dir):
 
 #####           PRUEBAS VF                      ########
 
-recordings_dir = r"C:\Users\doi99\Desktop\PAE\records"
+recordings_dir = #Poner path
 vital_path = find_latest_vital(recordings_dir)
 vf = VitalFile(vital_path)
 
@@ -102,17 +102,17 @@ print("Los algoritmos disponibles son: ", possible_list )
 
 ##########      Función para crear un fucking zarr
 
-# recordings_dir = r"C:\Users\doi99\Desktop\PAE\records"
+# recordings_dir = #Poner path
 # vital_path = find_latest_vital(recordings_dir)
 # vf = VitalFile(vital_path)
 # tracks = vf.get_track_names()
 
-# zarr_path =r"C:\Users\doi99\Desktop\PAE\records"
+# zarr_path = #Poner path
 # vital_to_zarr( vital_path, zarr_path, tracks)
 
 ###########     Función para crear un fucking zarr
 
-zarr_path=r"C:\Users\doi99\Desktop\PAE\records"
+zarr_path = #Poner path
 # tracks_si = ['Intellivue/ECG_HR', 'Intellivue/ABP_HR', 'Intellivue/HR', 'Intellivue/ABP_SYS', 'Intellivue/BP_SYS', 'Intellivue/NIBP_SYS']
 # dataframe_si = leer_multiples_senyales(zarr_path,tracks_si)
 # # si = ShockIndex(dataframe_si).values
@@ -130,6 +130,7 @@ tracks_hrv = ['Intellivue/ECG_I', 'Intellivue/ECG_II', 'Intellivue/ECG_III', 'In
 dataframe_hrv = leer_multiples_senyales(zarr_path,tracks_hrv)
 print("AQUI VA EL HRV:", HeartRateVariability(dataframe_hrv).values)
 
-#recordings_dir = r"C:\Users\doi99\Desktop\PAE\records"
+#recordings_dir = #Poner path
 #vital_path = find_latest_vital(recordings_dir)
 #vf = VitalFile(vital_path)
+
