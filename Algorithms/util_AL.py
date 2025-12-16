@@ -234,6 +234,10 @@ def check_availability(tracks): #Function that checks whichs algorithms can be c
     if ('Intellivue/ABP_SYS' in tracks or 'Intellivue/BP_SYS' in tracks or 'Intellivue/NIBP_SYS' in tracks) and 'Intellivue/VOL_BLD_STROKE' in tracks:
         possible_list.append('Effective Arterial Elastance')
 
+    #Capnografía Volumetrica
+    if ('Intellivue/CO2' in tracks or 'Intellivue/AWAY_CO2_ET' in tracks or 'Intellivue/AWAY_CO2_INSP_MIN' in tracks) and ('Intellivue/FLOW' in tracks or 'Intellivue/RESP' in tracks or 'Intellivue/TV_EXP' in tracks):
+        possible_list.append('Volumetric Capnography')
+
     #Variables autonomicas
     if 'Intellivue/ECG_I' in tracks or 'Intellivue/ECG_II' in tracks or 'Intellivue/ECG_III' in tracks or 'Intellivue/ECG_V' in tracks:
         possible_list.append('Heart Rate Variability') #NO SE PODRÁ MOSTRAR POR PANTALLA, SOLO INVESTIGAÇAO
