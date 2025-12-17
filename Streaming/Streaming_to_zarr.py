@@ -6,7 +6,7 @@ import random
 import pandas as pd
 import vitaldb
 from Algorithms.check_availability import check_availability
-from Zarr.utils_zarr_corrected import _DEFAULT_COMPRESSOR, STORE_PATH, safe_group, get_group_if_exists, append_1d, open_root
+from Zarr.utils_zarr_corrected import VISIBLE_ALGORITHMS, _DEFAULT_COMPRESSOR, STORE_PATH, safe_group, get_group_if_exists, append_1d, open_root
 from Streaming.utils_Streaming import WAVE_TRACKS_FREQUENCIES, WAVE_STANDARD_RATE, obtener_vital_timestamp, obtener_directorio_del_dia, obtener_vital_mas_reciente
 
 
@@ -58,7 +58,7 @@ def vital_to_zarr_streaming(
     tracks_updated = []
 
     for track in available_tracks:  # Para cada variable hacer todo lo siguiente
-        rate = 0.5 
+        rate = 1.0 
         interval = 1.0  # Establecemos los valores por defecto de los Nominales
         track_type = "NUM"
         
@@ -224,7 +224,6 @@ def verificar_y_procesar(vital_path, last_size, last_read_counts, simulated_grow
             
             window_to_process = simulated_growth_seconds if PRUEVAS else None # En caso de no ser PRUEVAS, esto no sirve de nada
 
-            # CRIDA MODIFICADA: Passem i capturem el diccionari de conteos
             new_last_read_counts = vital_to_zarr_streaming( 
                 vital_path=vital_path,
                 zarr_path=STORE_PATH, 
@@ -282,7 +281,9 @@ def main_loop(stop_event: threading.Event, algoritmos_cargados_event: threading.
     
     lista_algoritmos = check_availability(limpios)
     print("Algoritmos seleccionables: ", lista_algoritmos)
-    algoritmos_disponibles.extend(lista_algoritmos)
+    algoritmos_disponibles_visibles = [alg for alg in lista_algoritmos if alg in VISIBLE_ALGORITHMS]
+    print("Algoritmos visibles: ", algoritmos_disponibles_visibles)
+    algoritmos_disponibles.extend(algoritmos_disponibles_visibles)
 
     algoritmos_cargados_event.set()
 
@@ -300,8 +301,6 @@ def main_loop(stop_event: threading.Event, algoritmos_cargados_event: threading.
                 print(f"\n-- SIMULACIÓN --: Leyendo bloque de {simulated_growth_seconds} segundos.")
             else:
                 simulated_growth_seconds = 0
-            
-            time.sleep(simulated_growth_seconds)
 
             current_size, last_read_counts, finished = verificar_y_procesar(
                 vital_path, 
@@ -325,6 +324,8 @@ def main_loop(stop_event: threading.Event, algoritmos_cargados_event: threading.
                     break
             
             time.sleep(POLLING_INTERVAL)
+
+            time.sleep(simulated_growth_seconds)
 
     except KeyboardInterrupt:
         print("\n-- Finalizando Polling.")
