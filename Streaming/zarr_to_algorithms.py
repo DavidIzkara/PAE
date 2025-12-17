@@ -196,7 +196,10 @@ def main_to_loop(algoritmes_escollits):
                         print(f"--- La track '{track}' fue actualizada ({metadatos_track.get('last_update_secs')} muestras).")
                         #print(f"        - Ultima actualización contiene datos de {metadatos_track.get('last_update_secs')} segundos que se representan en {metadatos_track.get('last_update_samples')} samples")
                         sample = Frame + track # Juntar el path completo del track dentro del zarr
-                        df_track = leer_ultimas_muestras_zarr(STORE_PATH, sample, metadatos_track.get('last_update_samples')) # Leer las ultimas muestras del zarr
+                        if metadatos_track.get('track_type') == 'NUM':
+                            df_track = leer_ultimas_muestras_zarr(STORE_PATH, sample, metadatos_track.get('last_update_samples')) # Leer las ultimas muestras del zarr
+                        else:
+                            df_track = leer_ultimas_muestras_zarr(STORE_PATH, sample, metadatos_track.get('last_update_samples')) # Leer las ultimas muestras del zarr
                         dataframes[sample.removeprefix("signals/")] = df_track # Guardar el dataframe en un diccionario (Lista de dataframes), quitando el prefijo "signals/"
                         #print(f"        - Se guarda el dataframe en la lista.")
                         tracks_updated.append(track) # Guardar el nombre de la variable actualizada
