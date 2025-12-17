@@ -99,12 +99,11 @@ def data_processing_loop(app, stop_event, config_queue):
                     value_columns = [col for col in df_result.columns if col != 'Timestamp' and col != 'Time_ini_ms' and col != 'Time_fin_ms']
                     
                     if 'Timestamp' in df_result.columns:
-                        time_ms_array = df_result['Timestamp'].values
-                        time_count = 1
+                        time_ini_array = df_result['Timestamp'].values
+                        time_fin_array = None
                     elif 'Time_ini_ms' in df_result.columns and 'Time_fin_ms' in df_result.columns:
-                        time_ini_ms_array = df_result['Time_ini_ms'].values
-                        time_fin_ms_array = df_result['Time_fin_ms'].values
-                        time_count = 2
+                        time_ini_array = df_result['Time_ini_ms'].values
+                        time_fin_array = df_result['Time_fin_ms'].values
                     else:
                         continue
 
@@ -112,11 +111,8 @@ def data_processing_loop(app, stop_event, config_queue):
 
                     for track_name in value_columns:
                         value_array = df_result[track_name].values
-                        if time_count == 1:
-                            write_prediction(zarr_path=STORE_PATH, pred_name=track_name, timestamps_ms=time_ms_array, values=value_array, modelo_info = {"model": NombreAlgoritmo, "visibilidad": visible}, timestamps_fin_ms=None)
-                        else:
-                            write_prediction(zarr_path=STORE_PATH, pred_name=track_name, timestamps_ms=time_ini_ms_array, values=value_array, modelo_info = {"model": NombreAlgoritmo, "visibilidad": visible}, timestamps_fin_ms=time_fin_ms_array)
-            
+                        write_prediction(zarr_path=STORE_PATH, pred_name=track_name, timestamps_ms=time_ini_array, values=value_array, modelo_info = {"model": NombreAlgoritmo, "visibilidad": visible}, timestamps_fin_ms=time_fin_array)
+                        
                 app.after(0, app.update_data_and_plots, results)
 
                 print(f"- [{threading.current_thread().name}] Solicitada actualización de GUI.")
