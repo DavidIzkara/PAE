@@ -3,10 +3,12 @@ import time
 import numpy as np
 import threading
 import random 
+import pandas as pd
+import vitaldb
 from Algorithms.check_availability import check_availability
 from Zarr.utils_zarr_corrected import _DEFAULT_COMPRESSOR, STORE_PATH, safe_group, get_group_if_exists, append_1d, open_root
 from Streaming.utils_Streaming import WAVE_TRACKS_FREQUENCIES, WAVE_STANDARD_RATE, obtener_vital_timestamp, obtener_directorio_del_dia, obtener_vital_mas_reciente
-from vitaldb import VitalFile 
+
 
 BASE_DIR = r"C:\Users\UX636EU\OneDrive - EY\Desktop\recordings" 
 POLLING_INTERVAL = 1 
@@ -14,8 +16,8 @@ POLLING_INTERVAL = 1
 # -------------------------------------------------------------------------------------------
 PRUEVAS = True
 
-DIRECTORIO_PRUEVA = r"C:\Users\UX636EU\OneDrive - EY\Desktop\recordings\251205" 
-ARCHIVO_VITAL = r"bd9cftsa6_251205_140000" 
+DIRECTORIO_PRUEVA = r"C:\Users\UX636EU\Downloads" 
+ARCHIVO_VITAL = r"xxycag2xd_250512_074519" 
 
 SIM_MIN_SECS = 20
 SIM_MAX_SECS = 30
@@ -36,7 +38,7 @@ def vital_to_zarr_streaming(
     if not os.path.exists(vital_path):
         raise FileNotFoundError(f"No s'ha trobat el .vital: {vital_path}")
 
-    vf = VitalFile(vital_path)
+    vf = vitaldb.VitalFile(vital_path)
     available_tracks = vf.get_track_names() # Recoje las cabezeras del vitalfile (nombre de las variables)
 
     #os.makedirs(os.path.dirname(zarr_path) or ".", exist_ok=True)
@@ -260,8 +262,26 @@ def main_loop(stop_event: threading.Event, algoritmos_cargados_event: threading.
     print(f"-- Directorio de salida ZARR (Acumulativo): {STORE_PATH}")
     print(f"-- Iniciando Polling cada {POLLING_INTERVAL} segundos")
 
-    vf = VitalFile(vital_path)
-    lista_algoritmos = check_availability(vf.get_track_names())
+    vf = vitaldb.VitalFile(vital_path)
+
+    limpios = []
+    for track in vf.get_track_names():
+        vd = vf.to_pandas(track_names = track, interval = 0, return_timestamp=True)
+        vd_clean = vd[vd[track].notna()]
+        if track != "Intellivue/ALARM_STATUS" and track != "Intellivue/ALARM_PRIORITY" and track != "Intellivue/ALARM_MESSAGE":
+            vd_clean2 = vd_clean[vd_clean[track] > -5.0]
+            
+            if track != "Intellivue/ICP":
+                vd_clean3 = vd_clean2[vd_clean2[track] != 0.0]
+            else: 
+                vd_clean3 = vd_clean2[vd_clean2[track] > 0.0]
+            
+            if vd_clean3 is not []:
+                if not vd_clean3.empty:
+                    limpios.append(track)
+    
+    lista_algoritmos = check_availability(limpios)
+    print("Algoritmos seleccionables: ", lista_algoritmos)
     algoritmos_disponibles.extend(lista_algoritmos)
 
     algoritmos_cargados_event.set()
