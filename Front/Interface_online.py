@@ -113,14 +113,15 @@ class RealTimeApp(tk.Tk):
                         # Asumimos que el DataFrame tiene 'Timestamp' (o 'Time_ini/fin_ms') y una columna de valor
                         if 'Timestamp' in df_result.columns and len(df_result.columns) > 1:
                             raw_x = df_result['Timestamp'].values
-
+                            # print("COMMO BOX Timestamps pre funcion: ", raw_x)
                             x = [epoch1700_to_datetime(ts/1000) for ts in raw_x] # el calculo que hace es para pasar de milisegundos a segundos (como espera la funcion)                      
+                            # print("COMO VOX Timestamp post funcion: ", x)
                         else: # 'Time_ini/fin_ms'
                             raw_x_ini = df_result['Time_ini_ms'].values
                             raw_x_fin = df_result['Time_fin_ms'].values
                             
-                            x = [epoch1700_to_datetime(ts/1000) for ts in raw_x_ini]
-                            x_fin = [epoch1700_to_datetime(ts/1000) for ts in raw_x_fin] # Nose que valor de timestamp interesa mas mostrar si inicio o final.
+                            x_ini = [epoch1700_to_datetime(ts/1000) for ts in raw_x_ini]
+                            x = [epoch1700_to_datetime(ts/1000) for ts in raw_x_fin] # Nose que valor de timestamp interesa mas mostrar si inicio o final.
 
                         value_col = [col for col in df_result.columns if col not in ['Timestamp', 'Time_ini_ms', 'Time_fin_ms']][0]
                         y = df_result[value_col].values
