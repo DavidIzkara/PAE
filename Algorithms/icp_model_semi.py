@@ -2,6 +2,8 @@ import numpy as np
 import json
 import os
 import vitaldb
+import argparse
+import glob
 from collections import defaultdict
 from typing import Tuple, List, Dict, Any
 
@@ -46,18 +48,22 @@ def get_icp_signal(vf_obj, track_name: str = 'Intellivue/ICP') -> Tuple[np.ndarr
     return timestamps, vals
 
 def discretize_icp(values: np.ndarray, thresholds: List[float] = [15.0, 20.0], hysteresis: float = 0.5) -> np.ndarray:
+    """Discretiza valores ICP en 3 estados usando histéresis (VECTORIZADO)."""
     values = np.asarray(values, dtype=float).ravel()
     states = np.zeros_like(values, dtype=int)
     if len(values) == 0: return states
 
+    t1, t2 = thresholds[0], thresholds[1]
+    t1_low, t1_high = t1 - hysteresis, t1 + hysteresis
+    t2_low, t2_high = t2 - hysteresis, t2 + hysteresis
+    
+    # Start with simple thresholding to get initial state
     current_state = 0
-    if values[0] >= thresholds[1]: current_state = 2
-    elif values[0] >= thresholds[0]: current_state = 1
+    if values[0] >= t2: current_state = 2
+    elif values[0] >= t1: current_state = 1
     states[0] = current_state
     
-    t1_low, t1_high = thresholds[0] - hysteresis, thresholds[0] + hysteresis
-    t2_low, t2_high = thresholds[1] - hysteresis, thresholds[1] + hysteresis
-
+    # Process transitions with hysteresis via state machine
     for i in range(1, len(values)):
         val = values[i]
         if current_state == 0:
@@ -75,17 +81,22 @@ def discretize_icp(values: np.ndarray, thresholds: List[float] = [15.0, 20.0], h
     return states
 
 def estimate_transition_matrix(states: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
+    """Estimate transition matrix using fully vectorized operations."""
     valid_mask = ~np.isnan(states)
-    states = np.asarray(states)[valid_mask]
-    n_states = int(np.nanmax(states)) + 1 if len(states) > 0 else 3
-    counts = np.zeros((n_states, n_states), dtype=int)
+    states = np.asarray(states, dtype=int)[valid_mask]
+    n_states = int(np.max(states)) + 1 if len(states) > 0 else 3
     
-    from_states = states[:-1].astype(int)
-    to_states = states[1:].astype(int)
-    for a, b in zip(from_states, to_states):
-        if 0 <= a < n_states and 0 <= b < n_states:
-            counts[a, b] += 1
-
+    # Vectorized transition counting using np.add.at
+    from_states = states[:-1]
+    to_states = states[1:]
+    
+    # Create 1D index into 2D counts array: counts[i,j] -> counts_flat[i*n_states + j]
+    indices = from_states * n_states + to_states
+    counts_flat = np.zeros(n_states * n_states, dtype=int)
+    np.add.at(counts_flat, indices, 1)
+    counts = counts_flat.reshape((n_states, n_states))
+    
+    # Normalize to transition matrix
     row_sums = counts.sum(axis=1, keepdims=True).astype(float)
     with np.errstate(divide='ignore', invalid='ignore'):
         P = np.divide(counts, row_sums, where=(row_sums != 0))
@@ -135,31 +146,127 @@ def save_semi_markov_model(path: str, model: Dict[str, Any]):
     with open(path, 'w') as fh: json.dump(out, fh, indent=2)
 
 if __name__ == '__main__':
-    print(f"--- Entrenando Modelo (Resolución Nativa) ---")
-    if not os.path.exists(VITAL_FILENAME):
-        print(f"ERROR: No existe {VITAL_FILENAME}"); exit(1)
-
-    vf = vitaldb.VitalFile(VITAL_FILENAME)
-    ts, vals = get_icp_signal(vf)
+    parser = argparse.ArgumentParser(description='Estimate semi-Markov model from ICP vital signals')
+    parser.add_argument('--input-file', type=str, default=None, help='Single vital file to process')
+    parser.add_argument('--input-dir', type=str, default=None, help='Directory with multiple vital files for batch aggregation')
+    parser.add_argument('--output-file', type=str, default=None, help='Output JSON model file')
+    parser.add_argument('--hysteresis', type=float, default=HYSTERESIS_VAL, help='Hysteresis value for discretization')
+    args = parser.parse_args()
     
-    # IMPORTANTE: Verificar que leemos millones de datos, no miles
-    print(f"Muestras leídas: {len(vals)}")
+    # Default behavior: if no arguments provided, use batch mode on TrainingData
+    if args.input_file is None and args.input_dir is None:
+        args.input_dir = 'TrainingData'
+        if args.output_file is None:
+            args.output_file = 'semi_markov_model_aggregated.json'
+    elif args.output_file is None:
+        args.output_file = OUTPUT_FILENAME
     
-    mask = (~np.isnan(vals)) & (vals >= 0.0) & (vals <= 100.0)
-    vals, ts = vals[mask], ts[mask]
-
-    states = discretize_icp(vals, thresholds=[15.0, 20.0], hysteresis=HYSTERESIS_VAL)
-    counts, P = estimate_transition_matrix(states)
-    sojourns = extract_sojourns(states, timestamps=ts)
-    fits = fit_parametric_sojourns(sojourns)
-
-    model = {
-        'P': P, 'counts': counts, 'thresholds': [15.0, 20.0],
-        'hysteresis': HYSTERESIS_VAL, 'fits': fits, 'best': fits
-    }
-    save_semi_markov_model(OUTPUT_FILENAME, model)
+    # Determine mode: single file or batch directory
+    if args.input_dir:
+        print(f"--- BATCH MODE: Processing directory {args.input_dir} ---")
+        vital_files = sorted(glob.glob(os.path.join(args.input_dir, '*.vital')))
+        if not vital_files:
+            print(f"ERROR: No .vital files found in {args.input_dir}")
+            exit(1)
+        print(f"Found {len(vital_files)} vital files")
+        
+        # Aggregate counts and sojourns across all files
+        aggregated_counts = None
+        aggregated_sojourns = defaultdict(list)
+        file_count = 0
+        
+        for vital_file in vital_files:
+            try:
+                print(f"Processing: {os.path.basename(vital_file)}", end=" ... ")
+                vf = vitaldb.VitalFile(vital_file)
+                ts, vals = get_icp_signal(vf)
+                
+                # Validate and filter
+                mask = (~np.isnan(vals)) & (vals >= 0.0) & (vals <= 100.0)
+                vals, ts = vals[mask], ts[mask]
+                
+                if len(vals) == 0:
+                    print("SKIP (no valid data)")
+                    continue
+                
+                # Process this file
+                states = discretize_icp(vals, thresholds=[15.0, 20.0], hysteresis=args.hysteresis)
+                counts, P = estimate_transition_matrix(states)
+                sojourns = extract_sojourns(states, timestamps=ts)
+                
+                # Aggregate
+                if aggregated_counts is None:
+                    aggregated_counts = counts.copy()
+                else:
+                    aggregated_counts += counts
+                
+                for state, durations in sojourns.items():
+                    aggregated_sojourns[state].extend(durations)
+                
+                file_count += 1
+                print(f"OK ({len(vals)} samples, {counts.sum()} transitions)")
+            except Exception as e:
+                print(f"ERROR: {e}")
+        
+        if file_count == 0:
+            print("ERROR: No files processed successfully")
+            exit(1)
+        
+        print(f"\n--- Aggregating {file_count} files ---")
+        
+        # Normalize aggregated counts to transition matrix
+        row_sums = aggregated_counts.sum(axis=1, keepdims=True).astype(float)
+        with np.errstate(divide='ignore', invalid='ignore'):
+            P = np.divide(aggregated_counts, row_sums, where=(row_sums != 0))
+        P[np.isnan(P)] = 0.0
+        
+        # Fit on aggregated sojourns
+        fits = fit_parametric_sojourns(dict(aggregated_sojourns))
+        
+        model = {
+            'P': P, 'counts': aggregated_counts, 'thresholds': [15.0, 20.0],
+            'hysteresis': args.hysteresis, 'fits': fits, 'best': fits
+        }
+        save_semi_markov_model(args.output_file, model)
+        
+        print(f"\nAggregated model saved to {args.output_file}")
+        print("\n--- Aggregated Model Summary ---")
+        print(f"Total transitions: {aggregated_counts.sum()}")
+        print(f"Transition matrix P:\n{P}")
+        for s, d in fits.items():
+            if 'params' in d:
+                print(f"State {s}: Scale = {d['params'][2]:.2f} (n={d.get('n',0)} sojourns)")
     
-    print("\n--- Resultados del Ajuste ---")
-    for s, d in fits.items():
-        if 'params' in d:
-            print(f"Estado {s}: Scale = {d['params'][2]:.2f} (n={d.get('n',0)})")
+    else:
+        # Single file mode
+        input_file = args.input_file if args.input_file else VITAL_FILENAME
+        output_file = args.output_file
+        
+        print(f"--- Single File Mode: Processing {input_file} ---")
+        if not os.path.exists(input_file):
+            print(f"ERROR: No existe {input_file}"); exit(1)
+
+        vf = vitaldb.VitalFile(input_file)
+        ts, vals = get_icp_signal(vf)
+        
+        # IMPORTANTE: Verificar que leemos millones de datos, no miles
+        print(f"Muestras leídas: {len(vals)}")
+        
+        mask = (~np.isnan(vals)) & (vals >= 0.0) & (vals <= 100.0)
+        vals, ts = vals[mask], ts[mask]
+
+        states = discretize_icp(vals, thresholds=[15.0, 20.0], hysteresis=args.hysteresis)
+        counts, P = estimate_transition_matrix(states)
+        sojourns = extract_sojourns(states, timestamps=ts)
+        fits = fit_parametric_sojourns(sojourns)
+
+        model = {
+            'P': P, 'counts': counts, 'thresholds': [15.0, 20.0],
+            'hysteresis': args.hysteresis, 'fits': fits, 'best': fits
+        }
+        save_semi_markov_model(output_file, model)
+        
+        print("\n--- Resultados del Ajuste ---")
+        for s, d in fits.items():
+            if 'params' in d:
+                print(f"Estado {s}: Scale = {d['params'][2]:.2f} (n={d.get('n',0)})")
