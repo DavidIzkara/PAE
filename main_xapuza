@@ -2,7 +2,6 @@ import time
 import threading 
 import os
 import queue
-#from Front.Interface_online import RealTimeApp
 from Front.Interface import RealTimeApp
 from Streaming.Streaming_to_zarr import main_loop, PRUEVAS, DIRECTORIO_PRUEVA, ARCHIVO_VITAL, BASE_DIR
 from Streaming.zarr_to_algorithms import main_to_loop
