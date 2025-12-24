@@ -217,41 +217,79 @@ def main_to_loop(algoritmes_escollits):
                 match algoritme:
                     #case 'BRS':
                         #results['BRS'] = BRS.compute(dataframes)
+                    case '--Seleccione algoritmo--':
+                        pass
                     case 'Blood Pressure Variability':
-                        from Algorithms.blood_pressure_variability import BloodPressureVariability      # Comentar esto y descomentar las lineas del BPV del inicio del doc
-                        results['Blood Pressure Variability'] = BloodPressureVariability(dataframes).values # Comentar esto y descomentar siguiente linea
+                        try:
+                            from Algorithms.blood_pressure_variability import BloodPressureVariability      # Comentar esto y descomentar las lineas del BPV del inicio del doc
+                            results['Blood Pressure Variability'] = BloodPressureVariability(dataframes).values # Comentar esto y descomentar siguiente linea
+                        except Exception as e:
+                            print(f"--- [ERROR] Blood Pressure Variability fallo debido a: {e}")
                         #results['Blood Pressure Variability'] = BPV.compute(dataframes)
                     case 'Cardiac Output':
-                        from Algorithms.cardiac_output import CardiacOutput
-                        results['Cardiac Output'] = CardiacOutput(dataframes).values
+                        try:
+                            from Algorithms.cardiac_output import CardiacOutput
+                            results['Cardiac Output'] = CardiacOutput(dataframes).values
+                        except Exception as e:
+                            print(f"--- [ERROR] Cardiac Output fallo debido a: {e}")
                     case 'Cardiac Power Output':
-                        from Algorithms.cardiac_power_output import CardiacPowerOutput
-                        results['Cardiac Power Output'] = CardiacPowerOutput(dataframes).values
+                        try:
+                            from Algorithms.cardiac_power_output import CardiacPowerOutput
+                            results['Cardiac Power Output'] = CardiacPowerOutput(dataframes).values
+                        except Exception as e:
+                            print(f"--- [ERROR] Cardiac Power Output fallo debido a: {e}")
                     case 'Driving Pressure':
-                        from Algorithms.driving_pressure import DrivingPressure
-                        results['Driving Pressure'] = DrivingPressure(dataframes).values
+                        try:
+                            from Algorithms.driving_pressure import DrivingPressure
+                            results['Driving Pressure'] = DrivingPressure(dataframes).values
+                        except Exception as e:
+                            print(f"--- [ERROR] Driving Pressure fallo debido a: {e}")
                     case 'Dynamic Compliance':
-                        from Algorithms.dynamic_compliance import DynamicCompliance
-                        results['Dynamic Compliance'] = DynamicCompliance(dataframes).values
-                    case 'Effective Arterial Elastance':   
-                        from Algorithms.effective_arterial_elastance import EffectiveArterialElastance
-                        results['Effective Arterial Elastance'] = EffectiveArterialElastance(dataframes).values
+                        try:
+                            from Algorithms.dynamic_compliance import DynamicCompliance
+                            results['Dynamic Compliance'] = DynamicCompliance(dataframes).values
+                        except Exception as e:
+                            print(f"--- [ERROR] Dynamic Compliance fallo debido a: {e}")
+                    case 'Effective Arterial Elastance':
+                        try:   
+                            from Algorithms.effective_arterial_elastance import EffectiveArterialElastance
+                            results['Effective Arterial Elastance'] = EffectiveArterialElastance(dataframes).values
+                        except Exception as e:
+                            print(f"--- [ERROR] Effective Arterial Elastance fallo debido a: {e}")
                     case 'Heart Rate Variability':
-                        results['Heart Rate Variability'] = HRV.compute(dataframes)
+                        try:
+                            results['Heart Rate Variability'] = HRV.compute(dataframes)
+                        except Exception as e:
+                            print(f"--- [ERROR] Heart Rate Variability fallo debido a: {e}")
                     case 'RSA':
-                        results['RSA'] = RSA.compute(dataframes)
+                        try:
+                            results['RSA'] = RSA.compute(dataframes)
+                        except Exception as e:
+                            print(f"--- [ERROR] RSA fallo debido a: {e}")
                     case 'ROX Index':
-                        from Algorithms.rox_index import RoxIndex
-                        results['ROX Index'] = RoxIndex(dataframes).values
+                        try:
+                            from Algorithms.rox_index import RoxIndex
+                            results['ROX Index'] = RoxIndex(dataframes).values
+                        except Exception as e:
+                            print(f"--- [ERROR] ROX Index fallo debido a: {e}")
                     case 'Shock Index':
-                        from Algorithms.shock_index import ShockIndex
-                        results['Shock Index'] = ShockIndex(dataframes).values
+                        try:
+                            from Algorithms.shock_index import ShockIndex
+                            results['Shock Index'] = ShockIndex(dataframes).values
+                        except Exception as e:
+                            print(f"--- [ERROR] Shock Index fallo debido a: {e}")
                     case 'Systemic Vascular Resistance':
-                        from Algorithms.systemic_vascular_resistance import SystemicVascularResistance
-                        results['Systemic Vascular Resistance'] = SystemicVascularResistance(dataframes).values
+                        try:
+                            from Algorithms.systemic_vascular_resistance import SystemicVascularResistance
+                            results['Systemic Vascular Resistance'] = SystemicVascularResistance(dataframes).values
+                        except Exception as e:
+                            print(f"--- [ERROR] Systemic Vascular Resistance fallo debido a: {e}")
                     case 'Temp Comparison':
-                        from Algorithms.temp_comparison import TempComparison
-                        results['Temp Comparison'] = TempComparison(dataframes).values
+                        try:
+                            from Algorithms.temp_comparison import TempComparison
+                            results['Temp Comparison'] = TempComparison(dataframes).values
+                        except Exception as e:
+                            print(f"--- [ERROR] Temp Comparison fallo debido a: {e}")
                     case _:
                         print(f"--- Advertencia: Algoritmo '{algoritme}' no encontrado")
                         pass
