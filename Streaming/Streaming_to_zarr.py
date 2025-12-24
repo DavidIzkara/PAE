@@ -17,7 +17,7 @@ POLLING_INTERVAL = 1
 PRUEVAS = True
 
 DIRECTORIO_PRUEVA = r"C:\Users\UX636EU\Downloads" 
-ARCHIVO_VITAL = r"xxycag2xd_250512_074519" 
+ARCHIVO_VITAL = r"kuigebjtu_250703_115200" 
 
 SIM_MIN_SECS = 20
 SIM_MAX_SECS = 30
@@ -26,6 +26,7 @@ SIM_MAX_SECS = 30
 
 def vital_to_zarr_streaming(
     vital_path: str,
+    available_tracks: list,
     zarr_path: str,
     last_read_counts: dict, 
     simulated_growth_seconds: float | None = None,
@@ -35,11 +36,9 @@ def vital_to_zarr_streaming(
     Processa l'arxiu vital utilitzant la lògica de freqüències i el slicing per 
     conteig de mostres (last_read_counts) en mode simulació.
     """
-    if not os.path.exists(vital_path):
-        raise FileNotFoundError(f"No s'ha trobat el .vital: {vital_path}")
 
     vf = vitaldb.VitalFile(vital_path)
-    available_tracks = vf.get_track_names() # Recoje las cabezeras del vitalfile (nombre de las variables)
+    #available_tracks = vf.get_track_names() # Recoje las cabezeras del vitalfile (nombre de las variables)
 
     #os.makedirs(os.path.dirname(zarr_path) or ".", exist_ok=True)
     root = open_root(zarr_path)
@@ -193,7 +192,7 @@ def vital_to_zarr_streaming(
     return new_last_read_counts # Devuelve los conteos nuevos
 
 
-def verificar_y_procesar(vital_path, last_size, last_read_counts, simulated_growth_seconds):
+def verificar_y_procesar(vital_path, available_list, last_size, last_read_counts, simulated_growth_seconds):
     """
     Comprova la mida i crida a la funció vital_to_zarr utilitzant 
     la configuració de freqüències.
@@ -226,6 +225,7 @@ def verificar_y_procesar(vital_path, last_size, last_read_counts, simulated_grow
 
             new_last_read_counts = vital_to_zarr_streaming( 
                 vital_path=vital_path,
+                available_tracks=available_list,
                 zarr_path=STORE_PATH, 
                 last_read_counts=last_read_counts, 
                 simulated_growth_seconds=window_to_process # Passarle al vital_to_zarr los segundos de simulacion
@@ -291,7 +291,7 @@ def main_loop(stop_event: threading.Event, algoritmos_cargados_event: threading.
     last_read_counts = {} # Inicializacion de la variable
 
     if PRUEVAS:
-        total_sim_cycles = 10 
+        total_sim_cycles = 1000
         current_sim_cycle = 0
 
     try:
@@ -304,6 +304,7 @@ def main_loop(stop_event: threading.Event, algoritmos_cargados_event: threading.
 
             current_size, last_read_counts, finished = verificar_y_procesar(
                 vital_path, 
+                limpios,
                 last_size, 
                 last_read_counts,
                 simulated_growth_seconds
@@ -325,7 +326,7 @@ def main_loop(stop_event: threading.Event, algoritmos_cargados_event: threading.
             
             time.sleep(POLLING_INTERVAL)
 
-            time.sleep(simulated_growth_seconds)
+            #time.sleep(simulated_growth_seconds)
 
     except KeyboardInterrupt:
         print("\n-- Finalizando Polling.")
