@@ -8,7 +8,8 @@ import pandas as pd
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 import matplotlib.pyplot as plt
 import matplotlib.dates as mdates
-from Zarr.utils_zarr_corrected import epoch1700_to_datetime
+import zarr
+from Zarr.utils_zarr_corrected import epoch1700_to_datetime, STORE_PATH
 
 
 class RealTimeApp(tk.Tk):
@@ -68,6 +69,8 @@ class RealTimeApp(tk.Tk):
         self.canvas = FigureCanvasTkAgg(self.fig, master=self)
         self.canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True)
 
+        self.canvas.mpl_connect('button_press_event', self.on_plot_click)
+
         self.protocol("WM_DELETE_WINDOW", self.on_close)
 
     def on_combo_changed(self, event):
@@ -83,29 +86,32 @@ class RealTimeApp(tk.Tk):
         
         if self._stop_flag or not prediction_dict:
             return
-        
-        for algo_name, df_nuevo in prediction_dict.items():
-            if algo_name not in self.data_buffers:
-                self.data_buffers[algo_name] = deque(maxlen=self.MAX_PUSHES)
+            
+        if prediction_dict:
+            for algo_name, df_nuevo in prediction_dict.items():
+                if algo_name not in self.data_buffers:
+                    self.data_buffers[algo_name] = deque(maxlen=self.MAX_PUSHES)
 
-            self.data_buffers[algo_name].append(df_nuevo)
+                self.data_buffers[algo_name].append(df_nuevo)
 
         global_x_min = None
         global_x_max = None
 
         for i, (algo_name, ax) in enumerate(zip(self.current_selections, self.axes)):
 
-            ax.clear()
-            ax.grid(True, linestyle=':', alpha=0.9)
-
-            ax.margins(x=0)
-
             if algo_name == self.DEFAULT_OPTION:
                 ax.set_title(f"Grafica {i+1}: Sin selección")
                 ax.set_facecolor('#f0f0f0') 
+                ax.grid(True, linestyle=':', alpha=0.9)
+                ax.margins(x=0)
                 continue
 
             if algo_name in prediction_dict:
+
+                ax.clear()
+                ax.grid(True, linestyle=':', alpha=0.9)
+                ax.margins(x=0)
+
                 lista_bloques = list(self.data_buffers[algo_name])
                 if not lista_bloques: continue
                 
@@ -143,6 +149,68 @@ class RealTimeApp(tk.Tk):
 
         self.canvas.draw()
 
+    def on_plot_click(self, event):
+        if event.inaxes is None:
+            return
+        
+        for i, ax in enumerate(self.axes):
+            if event.inaxes == ax:
+                algo_name = self.current_selections[i]
+                if algo_name != self.DEFAULT_OPTION:
+                    self.open_historical_window(algo_name)
+                break
+
+    def open_historical_window(self, algo_name):
+        new_win = tk.Toplevel(self)
+        new_win.title(f"Historico completo: {algo_name}")
+        new_win.geometry("1200x600")
+
+        try:
+            root = zarr.open(STORE_PATH, mode='r')
+
+            group_path = f"predictions/{algo_name}"
+            if group_path not in root:
+                print(f"No se encontraron datos históricos para {algo_name}")
+                return
+            
+            subgroups = list(root[group_path].group_keys())
+            if not subgroups: return
+
+            data_group = root[f"{group_path}/{subgroups[0]}"]
+
+            all_timestamps = data_group["time_ms"][:]
+            all_values = data_group["value"][:]
+
+            if len(all_timestamps) == 0: return
+
+            fig_hist, ax_hist = plt.subplots(figsize=(10, 5))
+            ax_hist.margins(x=0)
+
+            x_hist = [epoch1700_to_datetime(t/1000) for t in all_timestamps]
+            ax_hist.plot(x_hist, all_values, color='tab:orange', linewidth=1.2)
+
+            ax_hist.set_xlim(min(x_hist), max(x_hist))
+            ax_hist.set_title(f"Histórico (Scroll: Zoom | Arrastrar: Mover) - {algo_name}", fontweight='bold')
+            ax_hist.xaxis.set_major_formatter(mdates.DateFormatter('%H:%M:%S'))
+            ax_hist.grid(True, linestyle='--', alpha=0.5)
+
+            canvas_hist = FigureCanvasTkAgg(fig_hist, master=new_win)
+            canvas_hist.get_tk_widget().pack(fill=tk.BOTH, expand=True)
+            
+            handler = ZoomPanHandler(ax_hist)
+            new_win.handler = handler
+            
+            fig_hist.canvas.mpl_connect('scroll_event', handler.zoom)
+            fig_hist.canvas.mpl_connect('button_press_event', handler.on_press)
+            fig_hist.canvas.mpl_connect('button_release_event', handler.on_release)
+            fig_hist.canvas.mpl_connect('motion_notify_event', handler.on_motion)
+
+            fig_hist.tight_layout()
+            canvas_hist.draw()
+        
+        except Exception as e:
+            print(f"Error al abrir histórico interactivo: {e}")
+
     def on_close(self):
         print("- Cerrando interfaz grafica... ")
         self._stop_flag = True
@@ -152,6 +220,48 @@ class RealTimeApp(tk.Tk):
             self.destroy()
         except Exception as e:
             print(f"- Error al cerrar: {e}")
+
+class ZoomPanHandler:
+    def __init__(self, ax):
+        self.ax = ax
+        self.press = None
+
+    def zoom(self, event):
+        if event.inaxes != self.ax: return
+        base_scale = 1.5
+        if event.button == 'up':
+            scale_factor = 1 / base_scale
+        elif event.button == 'down':
+            scale_factor = base_scale
+        else:
+            scale_factor = 1
+
+        cur_xlim = self.ax.get_xlim()
+        # En Matplotlib, las fechas son números flotantes
+        xdata = event.xdata 
+        
+        new_width = (cur_xlim[1] - cur_xlim[0]) * scale_factor
+        rel_x = (cur_xlim[1] - xdata) / (cur_xlim[1] - cur_xlim[0])
+        
+        self.ax.set_xlim([xdata - new_width * (1 - rel_x), xdata + new_width * rel_x])
+        self.ax.figure.canvas.draw_idle()
+
+    def on_press(self, event):
+        if event.inaxes != self.ax: return
+        # Guardamos la posición inicial del clic
+        self.press = event.xdata, event.ydata
+
+    def on_release(self, event):
+        self.press = None
+        self.ax.figure.canvas.draw_idle()
+
+    def on_motion(self, event):
+        if self.press is None or event.inaxes != self.ax: return
+        # Calculamos el desplazamiento
+        dx = event.xdata - self.press
+        cur_xlim = self.ax.get_xlim()
+        self.ax.set_xlim(cur_xlim[0] - dx, cur_xlim[1] - dx)
+        self.ax.figure.canvas.draw_idle()
 
 if __name__ == "__main__":
     app = RealTimeApp(["Shock Index", "Heart Rate Variability", "RSA"], "SESION_TEST_01")
