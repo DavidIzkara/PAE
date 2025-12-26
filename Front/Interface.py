@@ -84,70 +84,111 @@ class RealTimeApp(tk.Tk):
 
     def update_data_and_plots(self, prediction_dict):
         
-        if self._stop_flag or not prediction_dict:
+        if self._stop_flag:
             return
             
+        temps_referencia_df = None
         if prediction_dict:
-            for algo_name, df_nuevo in prediction_dict.items():
-                if algo_name not in self.data_buffers:
-                    self.data_buffers[algo_name] = deque(maxlen=self.MAX_PUSHES)
+            for df in prediction_dict.values():
+                if df is not None and not df.empty:
+                    temps_referencia_df = df.copy()
+                    break
 
+        for i in range(4):
+            algo_name = self.current_selections[i]
+            if algo_name == self.DEFAULT_OPTION: continue
+
+            if algo_name not in self.data_buffers:
+                self.data_buffers[algo_name] = deque(maxlen=self.MAX_PUSHES)
+
+            if prediction_dict and algo_name in prediction_dict and not prediction_dict[algo_name].empty:
+                df_nuevo = prediction_dict[algo_name].copy()
+                df_nuevo['real'] = True
                 self.data_buffers[algo_name].append(df_nuevo)
+            
+            elif temps_referencia_df is not None and len(self.data_buffers[algo_name]) > 0:
+                ultima_dada = self.data_buffers[algo_name][-1].copy()
+
+                #ultima_dada['Timestamp'] = temps_referencia_df['Timestamp'].values
+                ultima_dada = ultima_dada.copy() # Evita avisos de SettingWithCopy
+                ultima_dada.loc[:, 'Timestamp'] = temps_referencia_df['Timestamp'].values[:len(ultima_dada)]
+
+                if 'Time_ini_ms' in ultima_dada.columns:
+                    ultima_dada['Time_ini_ms'] = temps_referencia_df['Time_ini_ms'].values
+                if 'Time_fin_ms' in ultima_dada.columns:
+                    ultima_dada['Time_fin_ms'] = temps_referencia_df['Time_fin_ms'].values
+                
+                ultima_dada['real'] = False
+                self.data_buffers[algo_name].append(ultima_dada)
 
         global_x_min = None
         global_x_max = None
 
         for i, (algo_name, ax) in enumerate(zip(self.current_selections, self.axes)):
+            
+            ax.clear()
+            ax.grid(True, linestyle=':', alpha=0.6)
+            ax.margins(x=0)
 
             if algo_name == self.DEFAULT_OPTION:
                 ax.set_title(f"Grafica {i+1}: Sin selección")
                 ax.set_facecolor('#f0f0f0') 
-                ax.grid(True, linestyle=':', alpha=0.9)
-                ax.margins(x=0)
                 continue
+            
+            ax.set_facecolor('white')
+            lista_bloques = list(self.data_buffers[algo_name])
 
-            if algo_name in prediction_dict:
+            for idx, bloque in enumerate(lista_bloques):
+                val_cols =  [c for c in bloque.columns if c not in ['Timestamp', 'Time_fin_ms', 'Time_ini_ms', 'is_real']]
+                if not val_cols: continue
 
-                ax.clear()
-                ax.grid(True, linestyle=':', alpha=0.9)
-                ax.margins(x=0)
+                target_col = val_cols[0] if val_cols else 'value'
 
-                lista_bloques = list(self.data_buffers[algo_name])
-                if not lista_bloques: continue
-                
-                df_ventana = pd.concat(lista_bloques, ignore_index=True)
-                if df_ventana.empty: continue
+                x_vals = [epoch1700_to_datetime(t/1000) for t in bloque['Timestamp']]
+                y_vals = bloque[target_col].values
 
-                value_cols = [c for c in df_ventana.columns if c not in ['Timestamp', 'Time_fin_ms']]
-                if not value_cols: continue
-                
-                target_col = value_cols[0]
-                ax.set_facecolor('white')
-                
-                x_values = [epoch1700_to_datetime(t/1000) for t in df_ventana['Timestamp']]
-                y_values = df_ventana[target_col].values
+                es_real = bloque.get('real', pd.Series([True] * len(bloque))).iloc[0]
+                color_linea = 'tab:blue' if es_real else 'red'
 
-                if global_x_min is None or x_values[0] < global_x_min: global_x_min = x_values[0]
-                if global_x_max is None or x_values[-1] > global_x_min: global_x_min = x_values[-1]
+                ax.plot(x_vals, y_vals, color=color_linea, linewidth=1.8)
 
-                ax.plot(x_values, y_values, label=f"{target_col}", color='tab:blue', linewidth=1.5)
+                if idx < len(lista_bloques) - 1:
+                    seguent_bloque = lista_bloques[idx + 1]
 
-                last_x, last_y = x_values[-1], y_values[-1]
+                    dt_fin_actual = x_vals[-1]
+                    dt_inicio_siguiente = epoch1700_to_datetime(seguent_bloque['Timestamp'].iloc[0]/1000)
+                    val_inicio_siguiente = seguent_bloque[target_col].iloc[0]
+
+                    x_conn = [dt_fin_actual, dt_inicio_siguiente]
+                    y_conn = [y_vals[-1], val_inicio_siguiente]
+
+                    gap_seconds = (dt_inicio_siguiente - dt_fin_actual).total_seconds()
+
+                    if gap_seconds > 2.0:
+                        # Pintar vermell (error o salt de bloque)
+                        ax.plot(x_conn, y_conn, color='red', linewidth=1.8, linestyle='--')
+                    else:
+                        # Pintar blau (normal)
+                        ax.plot(x_conn, y_conn, color=color_linea, linewidth=1.8)
+
+                if global_x_min is None or x_vals[0] < global_x_min: global_x_min = x_vals[0]
+                if global_x_max is None or x_vals[-1] > global_x_max: global_x_max = x_vals[-1]
+            
+            if lista_bloques:
+                ultimo_bloque = lista_bloques[-1]
+                last_x = epoch1700_to_datetime(ultimo_bloque['Timestamp'].iloc[-1]/1000)
+                last_y = ultimo_bloque[target_col].iloc[-1]
                 ax.plot(last_x, last_y, marker='o', color='red', markersize=6)
                 ax.annotate(f'{last_y:.2f}', xy=(last_x, last_y), xytext=(8, 0), textcoords='offset points', color='red', weight='bold')
 
-                ax.set_title(f"{algo_name} - {target_col}", fontsize=11, fontweight='bold')
-                ax.legend(loc='upper left')
+            ax.set_title(f"{algo_name} - {target_col}", fontsize=11, fontweight='bold')
         
-        if global_x_max and global_x_min:
+        if global_x_min and global_x_max:
             self.axes[3].set_xlim(global_x_min, global_x_max)
         
         self.axes[3].xaxis.set_major_formatter(mdates.DateFormatter('%M:%S'))
-        self.axes[3].xaxis.set_major_locator(mdates.AutoDateLocator())
-
-        self.axes[3].tick_params(axis='x', rotation=0, labelsize=10, labelbottom=True)
-
-        self.canvas.draw()
+        self.fig.tight_layout()
+        self.canvas.draw_idle()
 
     def on_plot_click(self, event):
         if event.inaxes is None:
@@ -237,7 +278,6 @@ class ZoomPanHandler:
             scale_factor = 1
 
         cur_xlim = self.ax.get_xlim()
-        # En Matplotlib, las fechas son números flotantes
         xdata = event.xdata 
         
         new_width = (cur_xlim[1] - cur_xlim[0]) * scale_factor
@@ -248,8 +288,7 @@ class ZoomPanHandler:
 
     def on_press(self, event):
         if event.inaxes != self.ax: return
-        # Guardamos la posición inicial del clic
-        self.press = event.xdata, event.ydata
+        self.press = event.xdata
 
     def on_release(self, event):
         self.press = None
@@ -257,7 +296,7 @@ class ZoomPanHandler:
 
     def on_motion(self, event):
         if self.press is None or event.inaxes != self.ax: return
-        # Calculamos el desplazamiento
+        
         dx = event.xdata - self.press
         cur_xlim = self.ax.get_xlim()
         self.ax.set_xlim(cur_xlim[0] - dx, cur_xlim[1] - dx)
