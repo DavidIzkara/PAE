@@ -43,20 +43,23 @@ class RealTimeApp(tk.Tk):
         self.combos = [] # Llista que guarda els combos
         
         for i in range(4):
+            var = tk.StringVar(value=self.DEFAULT_OPTION)
+            self.current_selections.append(var)
+
+        for i in range(4):
             col_frame = tk.Frame(selector_frame)
             col_frame.grid(row=0, column=i, padx=2)
 
             ttk.Label(col_frame, text=f"Grafica {i+1}:", font=("Arial", 10, "bold")).pack()
 
-            combo = ttk.Combobox(col_frame, values=self.available_algorithms, state="readonly", width=30)
+            combo = ttk.Combobox(col_frame, textvariable=self.current_selections[i], values=self.available_algorithms, state="readonly", width=30)
             combo.pack(pady=2)
 
-            combo.set(self.DEFAULT_OPTION)
-
-            combo.bind("<<ComboboxSelected>>", self.on_combo_changed)
-            
             self.combos.append(combo)
-            self.current_selections.append(self.DEFAULT_OPTION)
+        
+        for i in range(4):
+            self.current_selections[i].trace_add("write", self.on_combo_changed)
+            self.combos[i].bind("<<ComboboxSelected>>", self.update_all_combobox_lists)
 
         self.fig, self.axes = plt.subplots(4, 1, figsize=(16, 8), sharex=True)
         self.fig.subplots_adjust(hspace=0.4, left=0.05, right=0.95, top=0.95, bottom=0.1)
@@ -73,14 +76,27 @@ class RealTimeApp(tk.Tk):
 
         self.protocol("WM_DELETE_WINDOW", self.on_close)
 
-    def on_combo_changed(self, event):
-        new_selections = [c.get() for c in self.combos]
-        self.current_selections = new_selections
+    def update_all_combobox_lists(self, event=None):
+        if len(self.combos) < 4: return
 
-        print(f"- Cambio en selectores: {self.current_selections}")
+        seleccionados = [sv.get() for sv in self.current_selections if sv.get() != self.DEFAULT_OPTION]
 
+        for i, combo in enumerate(self.combos):
+            current_val = self.current_selections[i].get()
+
+            opciones_libres = [self.DEFAULT_OPTION]
+            for alg in self.available_algorithms:
+                if alg == self.DEFAULT_OPTION: continue
+                if alg not in seleccionados or alg == current_val:
+                    opciones_libres.append(alg)
+            
+            combo['values'] = opciones_libres
+
+    def on_combo_changed(self, *args):
+        current_config = [sv.get() for sv in self.current_selections]
         if self.config_queue:
-            self.config_queue.put(self.current_selections)
+            self.config_queue.put(current_config)
+        print(f"Nueva configuración enviada: {current_config}")
 
     def update_data_and_plots(self, prediction_dict):
         
@@ -95,7 +111,7 @@ class RealTimeApp(tk.Tk):
                     break
 
         for i in range(4):
-            algo_name = self.current_selections[i]
+            algo_name = self.current_selections[i].get()
             if algo_name == self.DEFAULT_OPTION: continue
 
             if algo_name not in self.data_buffers:
@@ -110,7 +126,7 @@ class RealTimeApp(tk.Tk):
                 ultima_dada = self.data_buffers[algo_name][-1].copy()
 
                 #ultima_dada['Timestamp'] = temps_referencia_df['Timestamp'].values
-                ultima_dada = ultima_dada.copy() # Evita avisos de SettingWithCopy
+                ultima_dada = ultima_dada.copy()
                 ultima_dada.loc[:, 'Timestamp'] = temps_referencia_df['Timestamp'].values[:len(ultima_dada)]
 
                 if 'Time_ini_ms' in ultima_dada.columns:
@@ -124,7 +140,8 @@ class RealTimeApp(tk.Tk):
         global_x_min = None
         global_x_max = None
 
-        for i, (algo_name, ax) in enumerate(zip(self.current_selections, self.axes)):
+        current_config = [sv.get() for sv in self.current_selections]
+        for i, (algo_name, ax) in enumerate(zip(current_config, self.axes)):
             
             ax.clear()
             ax.grid(True, linestyle=':', alpha=0.6)
@@ -162,9 +179,9 @@ class RealTimeApp(tk.Tk):
                     x_conn = [dt_fin_actual, dt_inicio_siguiente]
                     y_conn = [y_vals[-1], val_inicio_siguiente]
 
-                    gap_seconds = (dt_inicio_siguiente - dt_fin_actual).total_seconds()
+                    gap = (dt_inicio_siguiente - dt_fin_actual).total_seconds()
 
-                    if gap_seconds > 2.0:
+                    if gap > 2.0:
                         # Pintar vermell (error o salt de bloque)
                         ax.plot(x_conn, y_conn, color='red', linewidth=1.8, linestyle='--')
                     else:
@@ -196,7 +213,7 @@ class RealTimeApp(tk.Tk):
         
         for i, ax in enumerate(self.axes):
             if event.inaxes == ax:
-                algo_name = self.current_selections[i]
+                algo_name = self.current_selections[i].get()
                 if algo_name != self.DEFAULT_OPTION:
                     self.open_historical_window(algo_name)
                 break
