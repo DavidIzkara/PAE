@@ -27,7 +27,13 @@ RSA = RespiratorySinusArrhythmia()
 
 last_processed_timestamp = 0.0
 
-def monitorizar_actualizacion_iterativo() -> bool:
+def reset_last_processed_timestamp():
+    """Reinicia el timestamp para forzar la lectura al cambiar de archivo .vital"""
+    global last_processed_timestamp
+    last_processed_timestamp = 0.0
+    print("--- [INFO] Timestamp de procesamiento reseteado.")
+
+def monitorizar_actualizacion_iterativo(stop_event=None, timeout=1.0) -> bool:
     """
     Sondea de forma recursiva una pista y ajusta el intervalo de espera.
 
@@ -40,68 +46,28 @@ def monitorizar_actualizacion_iterativo() -> bool:
     """
     global last_processed_timestamp
 
-    try:
-        metadatos = read_group_zattrs(STORE_PATH, "")
-        last_updated_str = metadatos.get('last_updated')
+    start_time = time.time()
 
-        if not last_updated_str:
+    while (time.time() - start_time) < timeout:
+        if stop_event is not None and stop_event.is_set():
             return False
-
-        archivo_ts = time.mktime(time.strptime(last_updated_str, TIMESTAMP_FORMAT))
-
-        if archivo_ts > last_processed_timestamp:
-            print(f"\n⚡ Cambio detectado: Archivo({last_updated_str}) > Procesado anteriormente")
-            last_processed_timestamp = archivo_ts
-            return True
-
-        return False
-    
-    except Exception as e:
-        return False
-    """
-    diferencia_anterior_segundos = 10000 # Inicialmente un valor alto, para poder detectar el canvio
-    
-    while True:
+        
         try:
-            # Obtener y convertir el timestamp
             metadatos = read_group_zattrs(STORE_PATH, "")
             last_updated_str = metadatos.get('last_updated')
+
+            if last_updated_str:
+                archivo_ts = time.mktime(time.strptime(last_updated_str, TIMESTAMP_FORMAT))
+
+                if archivo_ts > last_processed_timestamp:
+                    #print(f"\n Cambio detectado: Archivo({last_updated_str}) > Procesado anteriormente")
+                    last_processed_timestamp = archivo_ts
+                    return True
             
-
-            if not last_updated_str:
-                print(f"--- [ERROR] Clave 'last_updated' no encontrada. Esperando 5s y reintentando...")
-                time.sleep(5.0)
-
-            # Convertir la cadena a objeto datetime y calcular la diferencia
-            diferencia_tiempo = time.mktime(time.strptime(time.strftime(TIMESTAMP_FORMAT), TIMESTAMP_FORMAT)) - time.mktime(time.strptime(last_updated_str, TIMESTAMP_FORMAT))
-            print(f"--- Tiempo sin actualizar: {diferencia_tiempo:.2f} s. ", end="")
-
-
-            # Comprobar si hay una actualización
-            # Si la diferencia actual es menor que la anterior, significa que 'last_updated' se actualizó.
-            if diferencia_tiempo < diferencia_anterior_segundos:
-                if diferencia_anterior_segundos != 10000: # Ignorar la primera llamada
-                    # ¡ACTUALIZACIÓN DETECTADA!
-                    print(f"\n--- ¡ACTUALIZACIÓN DETECTADA! ({diferencia_anterior_segundos:.2f}s -> {diferencia_tiempo:.2f}s)")
-                    return True # Señal de éxito: Propaga True hacia arriba.
-
-            # Determinar el intervalo de espera (tiempo de 'sleep')
-            sleep_time = 0.5 # Al final lo dejamos en 0.5 pa que no se quede pillado aqui
-                
-            # Actualizar el valor anterior y pausar
-            print(f"--- Próxima verificación en {sleep_time} s...")
-            diferencia_anterior_segundos = diferencia_tiempo
-            time.sleep(sleep_time)
-
-        except KeyboardInterrupt:
-            print("\n--- Monitoreo detenido por el usuario. ---")
-            return False
         except Exception as e:
-            print(f"\n--- [ERROR CRÍTICO] Ocurrió un error: {e}. Reintentando en 5s.")
-            time.sleep(5.0)
-            # En un error crítico, reiniciamos la "diferencia anterior"
-            diferencia_anterior_segundos = 10000 
-    """
+            pass
+
+        time.sleep(0.1)
     
 def leer_ultimas_muestras_zarr(zarr_path: str, sample: str, last_samples: int) -> pd.DataFrame:
     """
@@ -129,14 +95,14 @@ def leer_ultimas_muestras_zarr(zarr_path: str, sample: str, last_samples: int) -
         
         # Acceder al grupo de la pista
         if sample not in root:
-            print(f"--- [ERROR] La pista '{sample}' no se encuentra en Zarr en la ruta '{sample}'.")
+            #print(f"--- [ERROR] La pista '{sample}' no se encuentra en Zarr en la ruta '{sample}'.")
             return empty_df
             
         grp = root[sample]
         
         # Verificar que los datasets 'time_ms' y 'value' existan
         if "time_ms" not in grp or "value" not in grp:
-            print(f"--- [ERROR] Datasets 'time_ms' o 'value' faltan en el grupo '{sample}'.")
+            #print(f"--- [ERROR] Datasets 'time_ms' o 'value' faltan en el grupo '{sample}'.")
             return empty_df
             
         ds_time = grp["time_ms"]
@@ -164,18 +130,20 @@ def leer_ultimas_muestras_zarr(zarr_path: str, sample: str, last_samples: int) -
         return df
 
     except FileNotFoundError:
-        print(f"--- [ERROR] El archivo Zarr no se encontró en la ruta: {zarr_path}")
+        #print(f"--- [ERROR] El archivo Zarr no se encontró en la ruta: {zarr_path}")
         return empty_df
     except Exception as e:
         print(f"--- [ERROR CRÍTICO] Ocurrió un error al leer Zarr: {e}")
         return empty_df
 
 
-def main_to_loop(algoritmes_escollits):
+def main_to_loop(algoritmes_escollits, stop_event=None):
     try:
+        if stop_event and stop_event.is_set():
+            return None
         #print(f"--- Iniciando Monitoreo Recursivo para los Tracks ---")
 
-        if monitorizar_actualizacion_iterativo(): # Esto es un await de toda la vida
+        if monitorizar_actualizacion_iterativo(stop_event, timeout=1.0): # Esto es un await de toda la vida
             print("\n--- ¡ACTUALIZACIÓN DETECTADA !")
             
             metadatos_general = read_group_zattrs(STORE_PATH, "") # Leer el .zattrs del root
@@ -196,10 +164,7 @@ def main_to_loop(algoritmes_escollits):
                         print(f"--- La track '{track}' fue actualizada ({metadatos_track.get('last_update_secs')} muestras).")
                         #print(f"        - Ultima actualización contiene datos de {metadatos_track.get('last_update_secs')} segundos que se representan en {metadatos_track.get('last_update_samples')} samples")
                         sample = Frame + track # Juntar el path completo del track dentro del zarr
-                        if metadatos_track.get('track_type') == 'NUM':
-                            df_track = leer_ultimas_muestras_zarr(STORE_PATH, sample, metadatos_track.get('last_update_samples')) # Leer las ultimas muestras del zarr
-                        else:
-                            df_track = leer_ultimas_muestras_zarr(STORE_PATH, sample, metadatos_track.get('last_update_samples')) # Leer las ultimas muestras del zarr
+                        df_track = leer_ultimas_muestras_zarr(STORE_PATH, sample, metadatos_track.get('last_update_samples')) # Leer las ultimas muestras del zarr
                         dataframes[sample.removeprefix("signals/")] = df_track # Guardar el dataframe en un diccionario (Lista de dataframes), quitando el prefijo "signals/"
                         #print(f"        - Se guarda el dataframe en la lista.")
                         tracks_updated.append(track) # Guardar el nombre de la variable actualizada
