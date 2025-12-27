@@ -156,7 +156,7 @@ class RealTimeApp(tk.Tk):
             lista_bloques = list(self.data_buffers[algo_name])
 
             for idx, bloque in enumerate(lista_bloques):
-                val_cols =  [c for c in bloque.columns if c not in ['Timestamp', 'Time_fin_ms', 'Time_ini_ms', 'is_real']]
+                val_cols =  [c for c in bloque.columns if c not in ['Timestamp', 'Time_fin_ms', 'Time_ini_ms', 'real']]
                 if not val_cols: continue
 
                 target_col = val_cols[0] if val_cols else 'value'
@@ -168,6 +168,10 @@ class RealTimeApp(tk.Tk):
                 color_linea = 'tab:blue' if es_real else 'red'
 
                 ax.plot(x_vals, y_vals, color=color_linea, linewidth=1.8)
+                if target_col is not None:
+                    ax.set_title(f"{algo_name} - {target_col}", fontsize=11, fontweight='bold')
+                else:
+                    ax.set_title(f"{algo_name} - value", fontsize=11, fontweight='bold')
 
                 if idx < len(lista_bloques) - 1:
                     seguent_bloque = lista_bloques[idx + 1]
@@ -197,8 +201,6 @@ class RealTimeApp(tk.Tk):
                 last_y = ultimo_bloque[target_col].iloc[-1]
                 ax.plot(last_x, last_y, marker='o', color='red', markersize=6)
                 ax.annotate(f'{last_y:.2f}', xy=(last_x, last_y), xytext=(8, 0), textcoords='offset points', color='red', weight='bold')
-
-            ax.set_title(f"{algo_name} - {target_col}", fontsize=11, fontweight='bold')
         
         if global_x_min and global_x_max:
             self.axes[3].set_xlim(global_x_min, global_x_max)
