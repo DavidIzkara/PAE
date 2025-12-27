@@ -2,22 +2,15 @@ import time
 import threading 
 import os
 import queue
+import tkinter as tk
 from Front.Interface import RealTimeApp
 from Streaming.Streaming_to_zarr import main_loop, PRUEVAS, DIRECTORIO_PRUEVA, ARCHIVO_VITAL, BASE_DIR
-from Streaming.zarr_to_algorithms import main_to_loop
+from Streaming.zarr_to_algorithms import main_to_loop, reset_last_processed_timestamp
 from Streaming.utils_Streaming import obtener_directorio_del_dia, obtener_vital_mas_reciente
 from Zarr.utils_zarr_corrected import VISIBLE_ALGORITHMS, STORE_PATH, write_prediction
 
 
 def seleccionar_modo_gui():
-    try:
-        import tkinter as tk
-    except Exception:
-        # Si tkinter no está disponible (o no hay display), volver al input por consola
-        try:
-            return input("Selecciona modo (online/offline): ")
-        except Exception:
-            return None
 
     selection = {'mode': None}
 
@@ -66,31 +59,56 @@ def seleccionar_modo_gui():
 
     return selection['mode']
 
-def data_processing_loop(app, stop_event, config_queue):
+def data_processing_loop(app, config_queue, streaming_control):
    
     print("- Iniciando Bucle de Procesamiento de Datos (zarr_to_algorithms) en thread separado --")
     
-    ultima_seleccion = app.current_selections.copy()
+    ultima_seleccion = [alg.get() if hasattr(alg, 'get') else alg for alg in app.current_selections]
     
-    while not stop_event.is_set():
+    while not streaming_control['stop_signal'].is_set():
         try:
+            
+            if not PRUEVAS:
+                nueva_carpeta = obtener_directorio_del_dia(BASE_DIR)
+                nuevo_path = obtener_vital_mas_reciente(nueva_carpeta)
+
+                if nuevo_path and nuevo_path != streaming_control['current_path']:
+                    print(f"\n--- DETECTADO CAMBIO DE ARCHIVO .vital: {os.path.basename(nuevo_path)} ---")
+
+                    # Paramos el hilo de streaming actual
+                    streaming_control['stop_signal'].set()
+                    streaming_control['thread'].join(timeout=2)
+
+                    reset_last_processed_timestamp()
+
+                    # Crea el nuevo hilo
+                    new_stop_signal = threading.Event()
+                    new_algoritmos_disponibles = []
+                    new_algoritmos_cargados_event = threading.Event()
+                    new_thread = threading.Thread(target=main_loop, args=(new_stop_signal, new_algoritmos_cargados_event, new_algoritmos_disponibles, nuevo_path, nueva_carpeta), name="StreamingThread")
+                    
+                    # Guarda los parametros en el streaming_control y lanzalo
+                    streaming_control['thread'] = new_thread
+                    streaming_control['current_path'] = nuevo_path
+                    streaming_control['stop_signal'] = new_stop_signal
+
+                    new_thread.start()
+
+                    print(f"--- ✅ Streaming reiniciado con el nuevo archivo ---\n")
+
             canvio_detectado = False
             while not config_queue.empty():
                 try:
                     ultima_seleccion = config_queue.get_nowait()
                     canvio_detectado = True
-                    global last_processed_timestamp
-                    last_processed_timestamp = 0.0
+                    reset_last_processed_timestamp()
                 except queue.Empty:
                     break
             
             if canvio_detectado:
                 print(f"- Saltando a la configuración más reciente: {ultima_seleccion}")
         
-            # Ejecutar algoritmos y esperar una actualización de Zarr (función bloqueante)
-            # Nota: main_to_loop ahora espera internamente una actualización.
-            #print(f"- [{threading.current_thread().name}] Esperando nueva actualización de Zarr...")
-            results = main_to_loop(ultima_seleccion)
+            results = main_to_loop(ultima_seleccion, stop_event=streaming_control['stop_signal'])
             
             if results:
                 print(f"[- {threading.current_thread().name}] Resultados obtenidos. Escribiendo predicciones...")
@@ -117,11 +135,11 @@ def data_processing_loop(app, stop_event, config_queue):
 
                 print(f"- [{threading.current_thread().name}] Solicitada actualización de GUI.")
             
-            time.sleep(0.5) # Esto permite a el front reaccionar cada 0.5 s i no cada 30 s
+            time.sleep(0.01) # Esto permite a el front reaccionar cada 0.5 s i no cada 30 s
 
         except Exception as e:
             print(f"- [ERROR] {e}")
-            time.sleep(2)
+            time.sleep(1)
 
 def main():
     modo = seleccionar_modo_gui()
@@ -137,7 +155,7 @@ def main():
 
                 if PRUEVAS:
                     directorio_dia = DIRECTORIO_PRUEVA
-                    vital_path = os.path.join(DIRECTORIO_PRUEVA, ARCHIVO_VITAL)
+                    vital_path = os.path.join(directorio_dia, ARCHIVO_VITAL)
                 else: # En caso real
                     try: 
                         directorio_dia = obtener_directorio_del_dia(BASE_DIR)
@@ -155,16 +173,16 @@ def main():
                 #Formateamos para que sea comprensible para el humano
                 fecha_txt = f"Inicio: {partes[1][4:6]}/{partes[1][2:4]}/20{partes[1][0:2]} - {partes[2][0:2]}"
 
-                import threading
                 stop_event = threading.Event()
-
                 algoritmos_disponibles = []
                 algoritmos_cargados_event = threading.Event()
 
-                streaming_thread = threading.Thread(target=main_loop, args=(stop_event, algoritmos_cargados_event, algoritmos_disponibles, vital_path + ".vital", directorio_dia), name="StreamingThread")
+                streaming_thread = threading.Thread(target=main_loop, args=(stop_event, algoritmos_cargados_event, algoritmos_disponibles, vital_path + ".vital", directorio_dia), name="StreamingThread", daemon=True)
 
                 print("- Iniciando Streaming (Streaming_to_zarr.py) en thread separado --")
                 streaming_thread.start()
+
+                streaming_control = {'thread': streaming_thread, 'current_path': vital_path, 'stop_signal': stop_event}
 
                 print("- Esperando la lista de algoritmos disponibles del Streaming... --")
                 algoritmos_cargados_event.wait(timeout=10)
@@ -181,7 +199,7 @@ def main():
 
                 app = RealTimeApp(available_algorithms_list=algoritmos_disponibles, session_info=fecha_txt, config_queue = config_queue)
 
-                data_thread = threading.Thread(target = data_processing_loop, args = (app, stop_event, config_queue), name = "DataProcessingThread")
+                data_thread = threading.Thread(target = data_processing_loop, args = (app, config_queue, streaming_control), name = "DataProcessingThread", daemon=True)
                 data_thread.start()
                 
                 app.mainloop()
