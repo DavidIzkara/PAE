@@ -16,8 +16,8 @@ POLLING_INTERVAL = 1
 # -------------------------------------------------------------------------------------------
 PRUEVAS = True
 
-DIRECTORIO_PRUEVA = r"C:\Users\UX636EU\Downloads" 
-ARCHIVO_VITAL = r"xxycag2xd_250512_074519" 
+DIRECTORIO_PRUEVA = r"C:\Users\UX636EU\OneDrive - EY\Desktop\recordings\251205" 
+ARCHIVO_VITAL = r"bd9cftsa6_251205_134609" 
 
 SIM_MIN_SECS = 20
 SIM_MAX_SECS = 30
