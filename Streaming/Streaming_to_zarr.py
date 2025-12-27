@@ -7,7 +7,7 @@ import pandas as pd
 import vitaldb
 from Algorithms.check_availability import check_availability
 from Zarr.utils_zarr_corrected import VISIBLE_ALGORITHMS, _DEFAULT_COMPRESSOR, STORE_PATH, safe_group, get_group_if_exists, append_1d, open_root
-from Streaming.utils_Streaming import WAVE_TRACKS_FREQUENCIES, WAVE_STANDARD_RATE, obtener_vital_timestamp, obtener_directorio_del_dia, obtener_vital_mas_reciente
+from Streaming.utils_Streaming import WAVE_TRACKS_FREQUENCIES, WAVE_STANDARD_RATE, obtener_vital_timestamp
 
 
 BASE_DIR = r"C:\Users\UX636EU\OneDrive - EY\Desktop\recordings" 
@@ -330,8 +330,3 @@ def main_loop(stop_event: threading.Event, algoritmos_cargados_event: threading.
 
     except KeyboardInterrupt:
         print("\n-- Finalizando Polling.")
-
-if __name__ == "__main__":
-    print("-- Prueva del Streaming en Thread")
-    stop_event = threading.Event()
-    main_loop(stop_event)
