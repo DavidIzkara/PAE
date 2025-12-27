@@ -6,8 +6,6 @@ stored in Zarr format.
 Compatible with Zarr v2 (appendable 1D datasets, Blosc compression).
 """
 
-from __future__ import annotations
-
 import hashlib
 import os
 import time
@@ -40,17 +38,17 @@ def generate_uid(vital_path:str)-> str:
     return "UI" + token[:8]
 
 
-VISIBLE_ALGORITHMS = {
-    'Shock Index'
-    'Driving Pressure'
-    'Dynamic Compliance'
-    'ROX Index'
-    'Temp Comparison'
-    'Cardiac Output'
-    'Systemic Vascular Resistance'
-    'Cardiac Power Output'
+VISIBLE_ALGORITHMS = [
+    'Shock Index',
+    'Driving Pressure',
+    'Dynamic Compliance',
+    'ROX Index',
+    'Temp Comparison',
+    'Cardiac Output',
+    'Systemic Vascular Resistance',
+    'Cardiac Power Output',
     'Effective Arterial Elastance'
-}
+]
 
 
 
@@ -68,7 +66,7 @@ def open_root(store_path: str) -> zarr.hierarchy.Group:
 # epoch 1700-01-01 into a Python datetime
 def epoch1700_to_datetime(ts_seconds: float) -> datetime:
     """Convert VitalDB-style seconds since 1700-01-01 UTC to datetime."""
-    epoch_1700 = datetime(1700, 1, 1, tzinfo=timezone.utc)
+    epoch_1700 = datetime(1970, 1, 1, tzinfo=timezone.utc) + timedelta(hours=2)
     return epoch_1700 + timedelta(seconds=float(ts_seconds))
 
 def string_to_epoch1700(date_str: str, formato: str = TIMESTAMP_FORMAT) -> Union[float, None]:
@@ -96,7 +94,7 @@ def string_to_epoch1700(date_str: str, formato: str = TIMESTAMP_FORMAT) -> Union
         print(f"[ERROR] Incorrect datetime format: {e}")
         return None
 
-    epoch_1700 = datetime(1700, 1, 1, tzinfo=timezone.utc)
+    epoch_1700 = datetime(1970, 1, 1, tzinfo=timezone.utc)
 
     if dt_utc < epoch_1700:
         return None
