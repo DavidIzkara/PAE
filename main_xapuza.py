@@ -59,12 +59,100 @@ def seleccionar_modo_gui():
 
     return selection['mode']
 
+def seleccionar_box():
+    selection = {'box': None}
+    root = tk.Tk()
+    root.title('Seleccionar BOX')
+    root.resizable(False, False)
+
+    width, height = 280, 140
+    
+    try:
+        sw, sh = root.winfo_screenwidth(), root.winfo_screenheight()
+        x = int((sw - width) / 2)
+        y = int((sh - height) / 2)
+        root.geometry(f"{width}x{height}+{x}+{y}")
+    except Exception:
+        root.geometry(f"{width}x{height}")
+
+    tk.Label(root, text='Introduce el numero del BOX (1-99):').pack(pady=(12, 4))
+    entry = tk.Entry(root, justify='center')
+    entry.insert(0, "1")
+    entry.pack(pady=(0, 8))
+
+    def acceptar():
+        val = entry.get().strip()
+        if not val.isdigit():
+            entry.delete(0, tk.END); entry.insert(0, "1"); return
+        n = int(val)
+        if n < 1 or n > 99:
+            entry.delete(0, tk.END); entry.insert(0, "1"); return
+        selection['box'] = n
+        root.quit()
+
+    def cancelar():
+        selection['box'] = None
+        root.quit()
+    
+    frm = tk.Frame(root); frm.pack(pady=(0, 8))
+    tk.Button(frm, text='OK', width=8, command=acceptar).pack(side='left', pady=6)
+    tk.Button(frm, text='Cancelar', width=8, command=cancelar).pack(side='left', pady=6)
+
+    root.protocol('WM_DELETE_WINDOW', cancelar)
+    try:
+        root.mainloop()
+    finally:
+        try: root.destroy()
+        except Exception: pass
+
+    return selection['box']
+
+def construir_zarr_con_box_y_uid(box: int, uid: str, store_path_actual:str) -> str:
+
+    base_dir, basename = os.path.split(store_path_actual)
+    
+    zarr_dir = base_dir if basename.endswith('.zarr') else store_path_actual
+    
+    nombre = f"BOX{box:02d}_{uid}.zarr"
+    
+    return os.path.join(zarr_dir, nombre)
+
+
+def extraer_uid_de_vital_path(vital_path: str) -> str:
+
+    base = os.path.basename(vital_path)
+    base = base.replace('.vital', '')
+
+    return base.split('_')[0] if '_' in base else base
+
+
+def actualizar_store_path_global(nuevo_store_path: str):
+
+    global STORE_PATH
+    STORE_PATH = nuevo_store_path
+
+    import Zarr.utils_zarr_corrected as zarr_utils
+    zarr_utils.STORE_PATH = nuevo_store_path
+
+    import Streaming.Streaming_to_zarr as stz_module
+    stz_module.STORE_PATH = nuevo_store_path
+
+    import Streaming.zarr_to_algorithms as z2a_module
+    z2a_module.STORE_PATH = nuevo_store_path
+
+    import Front.Interface as front_interface
+    front_interface.STORE_PATH = nuevo_store_path
+
+    print(f"- Nuevo STORE_PATH aplicado: {nuevo_store_path}")
+
 def data_processing_loop(app, config_queue, streaming_control):
    
     print("- Iniciando Bucle de Procesamiento de Datos (zarr_to_algorithms) en thread separado --")
     
     ultima_seleccion = [alg.get() if hasattr(alg, 'get') else alg for alg in app.current_selections]
     
+    box_num = streaming_control.get('box_num')
+
     while not streaming_control['stop_signal'].is_set():
         try:
             
@@ -74,6 +162,18 @@ def data_processing_loop(app, config_queue, streaming_control):
 
                 if nuevo_path and nuevo_path != streaming_control['current_path']:
                     print(f"\n--- DETECTADO CAMBIO DE ARCHIVO .vital: {os.path.basename(nuevo_path)} ---")
+
+                    
+                    if box_num is not None:
+                        try:
+                            import Zarr.utils_zarr_corrected as zarr_utils
+                            uid_nuevo = extraer_uid_de_vital_path(nuevo_path)
+                            nuevo_store = construir_zarr_con_box_y_uid(box_num, uid_nuevo, zarr_utils.STORE_PATH)
+                            actualizar_store_path_global(nuevo_store)
+                            print(f"--- 🆕 ZARR seleccionado por cambio de .vital: {nuevo_store}")
+                        except Exception as e:
+                            print(f"--- [WARN] No se pudo actualizar STORE_PATH con nuevo uid: {e}")
+
 
                     # Paramos el hilo de streaming actual
                     streaming_control['stop_signal'].set()
@@ -156,14 +256,16 @@ def main():
                 if PRUEVAS:
                     directorio_dia = DIRECTORIO_PRUEVA
                     vital_path = os.path.join(directorio_dia, ARCHIVO_VITAL)
+                    vital_path_con_ext = vital_path + ".vital"
                 else: # En caso real
                     try: 
                         directorio_dia = obtener_directorio_del_dia(BASE_DIR)
-                        vital_path = obtener_vital_mas_reciente(directorio_dia)
+                        vital_path_con_ext = obtener_vital_mas_reciente(directorio_dia)
+                        vital_path = vital_path_con_ext.replace(".vital", "")
                     except FileNotFoundError as e:
                         print(f"- Error: {e}")
                         return
-                    
+                
                 # vital_path = bd9cftsa6_251205_140000
                 partes = vital_path.replace('.vital', '').split('_')
                 #uid = partes[0] # bd9cftsa6 (uid del paciente, en este caso the boss xD)
@@ -173,16 +275,31 @@ def main():
                 #Formateamos para que sea comprensible para el humano
                 fecha_txt = f"Inicio: {partes[1][4:6]}/{partes[1][2:4]}/20{partes[1][0:2]} - {partes[2][0:2]}"
 
+                box_num = seleccionar_box()
+                if box_num is None:
+                    print("- Selección de box cancelada. Saliendo. -")
+                    return
+
+                uid = extraer_uid_de_vital_path(vital_path_con_ext if not PRUEVAS else (vital_path+".vital"))
+                import Zarr.utils_zarr_corrected as zarr_utils
+                nuevo_store_path = construir_zarr_con_box_y_uid(box_num, uid, zarr_utils.STORE_PATH)
+
+                print(f"- BOX seleccionado: {box_num:02d}")
+                print(f"- UID detectado: {uid}")
+                print(f"- Nuevo ZARR: {nuevo_store_path}")
+
+                actualizar_store_path_global(nuevo_store_path)
+                
                 stop_event = threading.Event()
                 algoritmos_disponibles = []
                 algoritmos_cargados_event = threading.Event()
 
-                streaming_thread = threading.Thread(target=main_loop, args=(stop_event, algoritmos_cargados_event, algoritmos_disponibles, vital_path + ".vital", directorio_dia), name="StreamingThread", daemon=True)
+                streaming_thread = threading.Thread(target=main_loop, args=(stop_event, algoritmos_cargados_event, algoritmos_disponibles, vital_path_con_ext, directorio_dia), name="StreamingThread", daemon=True)
 
                 print("- Iniciando Streaming (Streaming_to_zarr.py) en thread separado --")
                 streaming_thread.start()
 
-                streaming_control = {'thread': streaming_thread, 'current_path': vital_path, 'stop_signal': stop_event}
+                streaming_control = {'thread': streaming_thread, 'current_path': vital_path, 'stop_signal': stop_event, 'box_num': box_num}
 
                 print("- Esperando la lista de algoritmos disponibles del Streaming... --")
                 algoritmos_cargados_event.wait(timeout=10)
