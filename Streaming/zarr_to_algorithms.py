@@ -25,6 +25,15 @@ RSA = RespiratorySinusArrhythmia()
 
 # ----------------------------------------------------------------
 
+def inicialitzar_algoritmes_amb_buffer():
+    from Algorithms.heart_rate_variability import HeartRateVariability 
+    global HRV 
+    HRV = HeartRateVariability()
+
+    from Algorithms.respiratory_sinus_arrhythmia import RespiratorySinusArrhythmia
+    global RSA 
+    RSA = RespiratorySinusArrhythmia()
+
 last_processed_timestamp = 0.0
 
 def reset_last_processed_timestamp():
@@ -109,18 +118,34 @@ def leer_ultimas_muestras_zarr(zarr_path: str, sample: str, last_samples: int) -
         ds_val = grp["value"]
         
         # Determinar la longitud total de la pista
-        total_samples = ds_time.shape[0]
+        #total_samples = ds_time.shape[0]
+        # Tolerante: assegurar mismas longitudes
+        total_time = ds_time.shape[0]
+        total_val = ds_val.shape[0]
+        total_samples = min(total_time, total_val)
         
         if total_samples == 0:
             return empty_df
             
         # Calcular el índice de inicio para el slicing
-        start_index = max(0, total_samples - last_samples)
+        #start_index = max(0, total_samples - last_samples)
         
         # Aplicar el slicing para leer las N últimas muestras
-        time_slice = ds_time[start_index:]
-        value_slice = ds_val[start_index:]
+        #time_slice = ds_time[start_index:]
+        #value_slice = ds_val[start_index:]
         
+        # last_samples puede no ser un valor (None o no-int?(Nose que es eso pero me salio en un error))
+        try:
+            ls = int(last_samples) if last_samples is not None else total_samples
+        except Exception:
+            ls = total_samples
+        
+        ls = max(1, min(ls, total_samples))
+        start_index = max(0, total_samples - ls)
+        n = total_samples - start_index
+        time_slice = ds_time[start_index : start_index + n]
+        value_slice = ds_val[start_index : start_index + n]
+
         # Crear el DataFrame
         df = pd.DataFrame({
             'time_ms': time_slice,
@@ -258,7 +283,7 @@ def main_to_loop(algoritmes_escollits, stop_event=None):
                     case _:
                         print(f"--- Advertencia: Algoritmo '{algoritme}' no encontrado")
                         pass
-            print(f"--- Resultados de los algoritmos: {results}")
+            #print(f"--- Resultados de los algoritmos: {results}")
             return results
         else:
             return None # En caso que falle el monitoreo o se interrumpa
