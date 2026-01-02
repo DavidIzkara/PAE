@@ -4,8 +4,8 @@ import os
 import queue
 import tkinter as tk
 from Front.Interface import RealTimeApp
-from Streaming.Streaming_to_zarr import main_loop, PRUEVAS, DIRECTORIO_PRUEVA, ARCHIVO_VITAL, BASE_DIR
-from Streaming.zarr_to_algorithms import main_to_loop, reset_last_processed_timestamp
+from Streaming.Streaming_to_zarr import main_loop, PRUEVAS, DIRECTORIO_PRUEVA, ARCHIVO_VITAL, BASE_DIR, seleccionar_base_dir
+from Streaming.zarr_to_algorithms import main_to_loop, reset_last_processed_timestamp, inicialitzar_algoritmes_amb_buffer
 from Streaming.utils_Streaming import obtener_directorio_del_dia, obtener_vital_mas_reciente
 from Zarr.utils_zarr_corrected import VISIBLE_ALGORITHMS, STORE_PATH, write_prediction
 
@@ -75,7 +75,7 @@ def seleccionar_box():
     except Exception:
         root.geometry(f"{width}x{height}")
 
-    tk.Label(root, text='Introduce el numero del BOX (1-99):').pack(pady=(12, 4))
+    tk.Label(root, text='Introduce el numero del BOX (1-13):').pack(pady=(12, 4))
     entry = tk.Entry(root, justify='center')
     entry.insert(0, "1")
     entry.pack(pady=(0, 8))
@@ -85,7 +85,7 @@ def seleccionar_box():
         if not val.isdigit():
             entry.delete(0, tk.END); entry.insert(0, "1"); return
         n = int(val)
-        if n < 1 or n > 99:
+        if n < 1 or n > 13:
             entry.delete(0, tk.END); entry.insert(0, "1"); return
         selection['box'] = n
         root.quit()
@@ -157,7 +157,8 @@ def data_processing_loop(app, config_queue, streaming_control):
         try:
             
             if not PRUEVAS:
-                nueva_carpeta = obtener_directorio_del_dia(BASE_DIR)
+                import Streaming.Streaming_to_zarr as stz_module
+                nueva_carpeta = obtener_directorio_del_dia(stz_module.BASE_DIR)
                 nuevo_path = obtener_vital_mas_reciente(nueva_carpeta)
 
                 if nuevo_path and nuevo_path != streaming_control['current_path']:
@@ -253,13 +254,29 @@ def main():
             try:
                 print("- Modo online activado. Iniciando monitoreo y ejecución de algoritmos...")
 
+                box_num = seleccionar_box()
+                if box_num is None:
+                    print("- Selección de box cancelada. Saliendo. -")
+                    return
+
+                if not PRUEVAS:
+                    base_dir_seleccionado = seleccionar_base_dir()
+                    if not base_dir_seleccionado:
+                        print("- No se seleccionó carpeta base. Saliendo. -")
+                        return
+                    
+                    import Streaming.Streaming_to_zarr as stz_module
+                    stz_module.BASE_DIR = base_dir_seleccionado
+                    print(f"- BASE_DIR seleccionado: {base_dir_seleccionado}")
+
                 if PRUEVAS:
                     directorio_dia = DIRECTORIO_PRUEVA
                     vital_path = os.path.join(directorio_dia, ARCHIVO_VITAL)
                     vital_path_con_ext = vital_path + ".vital"
                 else: # En caso real
                     try: 
-                        directorio_dia = obtener_directorio_del_dia(BASE_DIR)
+                        import Streaming.Streaming_to_zarr as stz_module
+                        directorio_dia = obtener_directorio_del_dia(stz_module.BASE_DIR)
                         vital_path_con_ext = obtener_vital_mas_reciente(directorio_dia)
                         vital_path = vital_path_con_ext.replace(".vital", "")
                     except FileNotFoundError as e:
@@ -275,12 +292,7 @@ def main():
                 #Formateamos para que sea comprensible para el humano
                 fecha_txt = f"Inicio: {partes[1][4:6]}/{partes[1][2:4]}/20{partes[1][0:2]} - {partes[2][0:2]}"
 
-                box_num = seleccionar_box()
-                if box_num is None:
-                    print("- Selección de box cancelada. Saliendo. -")
-                    return
-
-                uid = extraer_uid_de_vital_path(vital_path_con_ext if not PRUEVAS else (vital_path+".vital"))
+                uid = extraer_uid_de_vital_path(vital_path_con_ext if not PRUEVAS else (vital_path + ".vital"))
                 import Zarr.utils_zarr_corrected as zarr_utils
                 nuevo_store_path = construir_zarr_con_box_y_uid(box_num, uid, zarr_utils.STORE_PATH)
 
@@ -288,7 +300,9 @@ def main():
                 print(f"- UID detectado: {uid}")
                 print(f"- Nuevo ZARR: {nuevo_store_path}")
 
-                actualizar_store_path_global(nuevo_store_path)
+                actualizar_store_path_global(nuevo_store_path)                
+
+                inicialitzar_algoritmes_amb_buffer()
                 
                 stop_event = threading.Event()
                 algoritmos_disponibles = []
@@ -299,7 +313,7 @@ def main():
                 print("- Iniciando Streaming (Streaming_to_zarr.py) en thread separado --")
                 streaming_thread.start()
 
-                streaming_control = {'thread': streaming_thread, 'current_path': vital_path, 'stop_signal': stop_event, 'box_num': box_num}
+                streaming_control = {'thread': streaming_thread, 'current_path': vital_path_con_ext, 'stop_signal': stop_event, 'box_num': box_num}
 
                 print("- Esperando la lista de algoritmos disponibles del Streaming... --")
                 algoritmos_cargados_event.wait(timeout=10)
@@ -312,9 +326,13 @@ def main():
                     streaming_thread.join()
                     return
 
+                paquete = algoritmos_disponibles[0] if isinstance(algoritmos_disponibles[0], dict) else {"all": algoritmos_disponibles, "visible": algoritmos_disponibles}
+                lista_all = paquete.get("all", [])
+                lista_visible = paquete.get("visible", [])
+
                 config_queue = queue.Queue()
 
-                app = RealTimeApp(available_algorithms_list=algoritmos_disponibles, session_info=fecha_txt, config_queue = config_queue)
+                app = RealTimeApp(available_algorithms_list_all=lista_all, available_algorithms_list_visible=lista_visible, session_info=fecha_txt, config_queue = config_queue)
 
                 data_thread = threading.Thread(target = data_processing_loop, args = (app, config_queue, streaming_control), name = "DataProcessingThread", daemon=True)
                 data_thread.start()
