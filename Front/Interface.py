@@ -1,6 +1,7 @@
 import matplotlib
 matplotlib.use('TkAgg')
 
+import os
 import tkinter as tk
 from tkinter import ttk
 from collections import deque
@@ -13,7 +14,7 @@ from Zarr.utils_zarr_corrected import epoch1700_to_datetime, STORE_PATH
 
 
 class RealTimeApp(tk.Tk):
-    def __init__(self, available_algorithms_list, session_info="", config_queue = None):
+    def __init__(self, available_algorithms_list_all, available_algorithms_list_visible, session_info="", config_queue = None):
         # Configuracion de Ventana
         super().__init__()              
         self.config_queue = config_queue
@@ -23,15 +24,17 @@ class RealTimeApp(tk.Tk):
         self.data_buffers = {}
         self.MAX_PUSHES = 10
 
-        # Configuracion de Algoritmos (en el combobox)
+        # Configuracion de los algoritmos (en el combobox)
         self.DEFAULT_OPTION = "--Seleccione algoritmo--"
-        if not available_algorithms_list:   
-            self.available_algorithms = [self.DEFAULT_OPTION]       
-        else:
-            self.available_algorithms = [self.DEFAULT_OPTION] + available_algorithms_list
+        self.available_algorithms_list_all = list(available_algorithms_list_all or [])
+        self.available_algorithms_list_visible = list(available_algorithms_list_visible or [])
 
-        self._stop_flag = False
-        
+        self.available_algorithms = [self.DEFAULT_OPTION] + self.available_algorithms_list_visible
+
+        self.is_researcher = tk.BooleanVar(value=False) # Checkbox de investigacion
+
+        self.stop_flag = False
+
         # Configuracion Header
         self.info_header = tk.Label(self, text = session_info, font = ("Arial", 12, "bold")) 
         self.info_header.pack(pady=5)   
@@ -57,6 +60,11 @@ class RealTimeApp(tk.Tk):
 
             self.combos.append(combo)
         
+        chk_frame = tk.Frame(selector_frame)
+        chk_frame.grid(row=0, column=4, padx=(12, 0))
+        chk = ttk.Checkbutton(chk_frame, text="Investigación", variable=self.is_researcher, command=self.on_researcher_toggeled)
+        chk.pack(pady=(22, 0)) # Alineacion con los combobox
+
         for i in range(4):
             self.current_selections[i].trace_add("write", self.on_combo_changed)
             self.combos[i].bind("<<ComboboxSelected>>", self.update_all_combobox_lists)
@@ -78,7 +86,16 @@ class RealTimeApp(tk.Tk):
 
     def update_all_combobox_lists(self, event=None):
         if len(self.combos) < 4: return
+        
+        # Elegir la fuente segun el checkbox
+        if self.is_researcher.get():
+            fuente = self.available_algorithms_list_all
+        else: # checkbox = False
+            fuente = self.available_algorithms_list_visible
+        
+        self.available_algorithms = [self.DEFAULT_OPTION] + fuente
 
+        # Ajustar valores disponibles, evitando duplicados y preservando la selección actual si es válida
         seleccionados = [sv.get() for sv in self.current_selections if sv.get() != self.DEFAULT_OPTION]
 
         for i, combo in enumerate(self.combos):
@@ -92,15 +109,39 @@ class RealTimeApp(tk.Tk):
             
             combo['values'] = opciones_libres
 
+            # Si al desmarcar "Investigación" el valor seleccionado ya no existe, devolver a DEFAULT
+            if current_val != self.DEFAULT_OPTION and current_val not in opciones_libres:
+                self.current_selections[i].set(self.DEFAULT_OPTION)
+
     def on_combo_changed(self, *args):
         current_config = [sv.get() for sv in self.current_selections]
+        for i, sv in enumerate(self.current_selections):
+            if sv.get() == self.DEFAULT_OPTION:
+                self.clear_slot_buffer(i)
+            else:
+                self.clear_slot_buffer(i)
+
         if self.config_queue:
             self.config_queue.put(current_config)
         print(f"Nueva configuración enviada: {current_config}")
 
+    def on_researcher_toggeled(self):
+        # Recalcular listas y refrescar combobox
+        self.update_all_combobox_lists()
+        print(f"Modo Investigación: {self.is_researcher.get()}")
+
+    def clear_slot_buffer(self, slot_index: int):
+        try:
+            algo_name = self.current_selections[slot_index].get()
+            if algo_name and algo_name in self.data_buffers:
+                self.data_buffers[algo_name].clear()
+        
+        except Exception:
+            pass
+
     def update_data_and_plots(self, prediction_dict):
         
-        if self._stop_flag:
+        if self.stop_flag:
             return
             
         temps_referencia_df = None
@@ -119,23 +160,74 @@ class RealTimeApp(tk.Tk):
 
             if prediction_dict and algo_name in prediction_dict and not prediction_dict[algo_name].empty:
                 df_nuevo = prediction_dict[algo_name].copy()
+                if 'Timestamp' not in df_nuevo.columns:
+                    if 'Time_fin_ms' in df_nuevo.columns:
+                        df_nuevo['Timestamp'] = df_nuevo['Time_fin_ms'].astype('int64')
                 df_nuevo['real'] = True
                 self.data_buffers[algo_name].append(df_nuevo)
             
             elif temps_referencia_df is not None and len(self.data_buffers[algo_name]) > 0:
                 ultima_dada = self.data_buffers[algo_name][-1].copy()
 
-                #ultima_dada['Timestamp'] = temps_referencia_df['Timestamp'].values
                 ultima_dada = ultima_dada.copy()
-                ultima_dada.loc[:, 'Timestamp'] = temps_referencia_df['Timestamp'].values[:len(ultima_dada)]
 
-                if 'Time_ini_ms' in ultima_dada.columns:
-                    ultima_dada['Time_ini_ms'] = temps_referencia_df['Time_ini_ms'].values
-                if 'Time_fin_ms' in ultima_dada.columns:
-                    ultima_dada['Time_fin_ms'] = temps_referencia_df['Time_fin_ms'].values
+                ts_ref_col = None
+                for c in ['Timestamp', 'time_ms', 'Time_fin_ms', 'Time_ini_ms']:
+                    if c in temps_referencia_df.columns:
+                        ts_ref_col = c
+                        break
                 
-                ultima_dada['real'] = False
-                self.data_buffers[algo_name].append(ultima_dada)
+                n = min(len(ultima_dada), len(temps_referencia_df))
+                if ts_ref_col is None or n == 0:
+                    pass
+                else:
+                    ultima_dada = ultima_dada.iloc[:n].copy()
+                    ts_value = temps_referencia_df[ts_ref_col].values[:n]
+
+                    if 'Timestamp' in ultima_dada.columns:
+                        ultima_dada.loc[:, 'Timestamp'] = ts_value
+                    elif 'time_ms' in ultima_dada.columns:
+                        ultima_dada.loc[:, 'time_ms'] = ts_value
+                    elif 'Time_fin_ms' in ultima_dada.columns:
+                        ultima_dada.loc[:, 'Time_fin_ms'] = ts_value
+                    else:
+                        ultima_dada.loc[:, 'Time_ini_ms'] = ts_value
+                
+                    if 'Time_ini_ms' in ultima_dada.columns and 'Time_ini_ms' in temps_referencia_df.columns:
+                        ultima_dada.loc[:, 'Time_ini_ms'] = temps_referencia_df['Time_ini_ms'].values[:n]
+                    if 'Time_fin_ms' in ultima_dada.columns and 'Time_fin_ms' in temps_referencia_df.columns:
+                        ultima_dada.loc[:, 'Time_fin_ms'] = temps_referencia_df['Time_fin_ms'].values[:n]
+
+                    ultima_dada['real'] = False
+                #self.data_buffers[algo_name].append(ultima_dada)
+                    ts_col = None
+                    for c in ['Timestamp', 'time_ms', 'Time_ini_ms', 'Time_fin_ms']:
+                        if c in ultima_dada.columns:
+                            ts_col = c
+                            break
+
+                    if ts_col is not None: # Comprovar que el nuevo bloque no duplica los limites del ultimo bloque del buffer
+                        prev = self.data_buffers[algo_name][-1]
+                        prev_ts_col = None
+
+                        for c in ['Timestamp', 'time_ms', 'Time_ini_ms', 'Time_fin_ms']:
+                            if c in prev.columns:
+                                prev_ts_col = c
+                                break
+                        
+                        if prev_ts_col:
+                            try:
+                                prev_first = int(prev[prev_ts_col].iloc[0])
+                                prev_last  = int(prev[prev_ts_col].iloc[-1])
+                                new_first  = int(ultima_dada[ts_col].iloc[0])
+                                new_last   = int(ultima_dada[ts_col].iloc[-1])
+
+                                if (new_last > prev_last) or (new_first > prev_first):
+                                    self.data_buffers[algo_name].append(ultima_dada)
+                            
+                            except Exception:
+                                pass
+
 
         global_x_min = None
         global_x_max = None
@@ -155,13 +247,24 @@ class RealTimeApp(tk.Tk):
             ax.set_facecolor('white')
             lista_bloques = list(self.data_buffers[algo_name])
 
+            target_col = None
             for idx, bloque in enumerate(lista_bloques):
                 val_cols =  [c for c in bloque.columns if c not in ['Timestamp', 'Time_fin_ms', 'Time_ini_ms', 'real']]
                 if not val_cols: continue
 
-                target_col = val_cols[0] if val_cols else 'value'
+                if target_col is None:
+                    target_col = val_cols[0]
 
-                x_vals = [epoch1700_to_datetime(t/1000) for t in bloque['Timestamp']]
+                #x_vals = [epoch1700_to_datetime(t/1000) for t in bloque['Timestamp']]
+                ts_col = None
+                for c in ['Timestamp', 'time_ms', 'Time_ini_ms', 'Time_fin_ms']:
+                    if c in bloque.columns:
+                        ts_col = c
+                        break
+
+                if ts_col is None:
+                    continue
+                x_vals = [epoch1700_to_datetime(t/1000) for t in bloque[ts_col]]
                 y_vals = bloque[target_col].values
 
                 es_real = bloque.get('real', pd.Series([True] * len(bloque))).iloc[0]
@@ -177,7 +280,17 @@ class RealTimeApp(tk.Tk):
                     seguent_bloque = lista_bloques[idx + 1]
 
                     dt_fin_actual = x_vals[-1]
-                    dt_inicio_siguiente = epoch1700_to_datetime(seguent_bloque['Timestamp'].iloc[0]/1000)
+
+                    ts_col_next = None
+                    for c in ['Timestamp', 'time_ms', 'Time_ini_ms', 'Time_fin_ms']:
+                        if c in seguent_bloque.columns:
+                            ts_col_next = c
+                            break
+
+                    if ts_col_next is None:
+                        continue
+
+                    dt_inicio_siguiente = epoch1700_to_datetime(seguent_bloque[ts_col_next].iloc[0]/1000)
                     val_inicio_siguiente = seguent_bloque[target_col].iloc[0]
 
                     x_conn = [dt_fin_actual, dt_inicio_siguiente]
@@ -195,12 +308,22 @@ class RealTimeApp(tk.Tk):
                 if global_x_min is None or x_vals[0] < global_x_min: global_x_min = x_vals[0]
                 if global_x_max is None or x_vals[-1] > global_x_max: global_x_max = x_vals[-1]
             
-            if lista_bloques:
+            if lista_bloques and target_col is not None:
                 ultimo_bloque = lista_bloques[-1]
-                last_x = epoch1700_to_datetime(ultimo_bloque['Timestamp'].iloc[-1]/1000)
+
+                ts_col_last = None
+                for c in ['Timestamp', 'time_ms', 'Time_ini_ms', 'Time_fin_ms']:
+                    if c in ultimo_bloque.columns:
+                        ts_col_last = c
+                        break
+
+                if ts_col_last is None:
+                    continue
+
+                last_x = epoch1700_to_datetime(ultimo_bloque[ts_col_last].iloc[-1]/1000)
                 last_y = ultimo_bloque[target_col].iloc[-1]
                 ax.plot(last_x, last_y, marker='o', color='red', markersize=6)
-                ax.annotate(f'{last_y:.2f}', xy=(last_x, last_y), xytext=(8, 0), textcoords='offset points', color='red', weight='bold')
+                ax.annotate(f'{last_y:.2f}', xy=(last_x, last_y), xytext=(8, 0), textcoords='offset points', color='red', fontsize=15, weight='bold')
         
         if global_x_min and global_x_max:
             self.axes[3].set_xlim(global_x_min, global_x_max)
@@ -225,6 +348,9 @@ class RealTimeApp(tk.Tk):
         new_win.title(f"Historico completo: {algo_name}")
         new_win.geometry("1200x600")
 
+        if not hasattr(self, "historic_last_pred"):
+            self.historic_last_pred = {}
+
         try:
             root = zarr.open(STORE_PATH, mode='r')
 
@@ -234,28 +360,172 @@ class RealTimeApp(tk.Tk):
                 return
             
             subgroups = list(root[group_path].group_keys())
-            if not subgroups: return
+            if not subgroups:
+                print(f"No hay subpredicciones en {group_path}")
+                return
+            
+            top = tk.Frame(new_win)
+            top.pack(side=tk.TOP, fill=tk.X, padx=10, pady=8)
 
-            data_group = root[f"{group_path}/{subgroups[0]}"]
+            tk.Label(top, text="Sub-predicción:", font=("Arial", 10, "bold")).pack(side=tk.LEFT, padx=(0, 6))
 
-            all_timestamps = data_group["time_ms"][:]
-            all_values = data_group["value"][:]
+            cbo_var = tk.StringVar()
+            cbo = ttk.Combobox(top, textvariable=cbo_var, values=subgroups, state="readonly", width=30)
 
-            if len(all_timestamps) == 0: return
+            default_pred = self.historic_last_pred.get(algo_name, subgroups[0])
+            if default_pred not in subgroups:
+                default_pred = subgroups[0]
+            
+            cbo_var.set(default_pred)
+            cbo.pack(side=tk.LEFT, padx=(0, 12))
 
-            fig_hist, ax_hist = plt.subplots(figsize=(10, 5))
+            def exportar_csv():
+                try:
+                    import pandas as pd
+                    from tkinter import filedialog, messagebox
+
+                    pred_name = cbo_var.get()
+                    data_group = root[f"{group_path}/{pred_name}"]
+
+                    if "value" not in data_group:
+                        messagebox.showerror("Export CSV", f"Falta 'value' en {group_path}/{pred_name}")
+                        return
+                    
+                    vals = data_group["value"][:]
+                    if len(vals) == 0:
+                        messagebox.showinfo("Exportar CSV", "No hay datos para exportar en la sub‑predicción seleccionada.")
+                        return
+
+                    ts_name = None
+                    for c in ["time_ms", "time_fin_ms", "time_ini_ms"]:
+                        if c in data_group:
+                            ts_name = c
+                            break
+
+                    if ts_name is None:
+                        messagebox.showerror("Exportar CSV", f"No se encontró serie temporal ('time_ms'/'time_fin_ms'/'time_ini_ms') en {group_path}/{pred_name}")
+                        return
+                    
+                    t_ms = data_group[ts_name][:]
+                    n = min(len(t_ms), len(vals))
+                    if n <= 0:
+                        messagebox.showinfo("Exportar CSV", "No hay muestras temporales para exportar")
+                        return
+                    
+                    df = pd.DataFrame({ts_name: t_ms[:n], "value": vals[:n]})
+
+                    carpeta = filedialog.askdirectory(title="Selecciona la carpeta donde guardar el CSV")
+                    if not carpeta:
+                        return
+                    
+                    safe_algo = algo_name.replace(" ", "_")
+                    safe_pred = pred_name.replace(" ", "_")
+                    nombre = f"{safe_algo}_{safe_pred}.csv"
+
+                    ruta = os.path.join(carpeta, nombre)
+
+                    df.to_csv(ruta, index=False)
+                    messagebox.showinfo("Exportar CSV", f"Archivo guardado:\n{ruta}")
+
+                except Exception as e:
+                    try:
+                        from tkinter import messagebox
+                        messagebox.showerror("Export CSV", f"Error al exportar: {e}")
+                    
+                    except Exception:
+                        print(f"[ERROR] Exportar CSV: {e}")
+
+            spacer = tk.Frame(top)
+            spacer.pack(side=tk.LEFT, expand=True, fill=tk.X)
+            btn_export = ttk.Button(top, text="Export CSV", command=exportar_csv)
+            btn_export.pack(side=tk.RIGHT)
+
+            fig_hist, ax_hist = plt.subplots(figsize=(10.5, 5.3))
             ax_hist.margins(x=0)
-
-            x_hist = [epoch1700_to_datetime(t/1000) for t in all_timestamps]
-            ax_hist.plot(x_hist, all_values, color='tab:orange', linewidth=1.2)
-
-            ax_hist.set_xlim(min(x_hist), max(x_hist))
-            ax_hist.set_title(f"Histórico (Scroll: Zoom | Arrastrar: Mover) - {algo_name}", fontweight='bold')
-            ax_hist.xaxis.set_major_formatter(mdates.DateFormatter('%H:%M:%S'))
             ax_hist.grid(True, linestyle='--', alpha=0.5)
-
             canvas_hist = FigureCanvasTkAgg(fig_hist, master=new_win)
-            canvas_hist.get_tk_widget().pack(fill=tk.BOTH, expand=True)
+            canvas_hist.get_tk_widget().pack(side=tk.TOP, fill=tk.BOTH, expand=True)
+
+            GAP_SEC = 2.0
+
+            def render_pred(pred_name: str):
+                try:
+                    import numpy as np
+                    ax_hist.clear()
+                    ax_hist.margins(x=0)
+                    ax_hist.grid(True, linestyle='--', alpha=0.5)
+
+                    def escrivir_en_pantalla (text: str):
+                        ax_hist.text(0.5, 0.5, text, transform=ax_hist.transAxes, ha="center", va="center", color="red")
+                        fig_hist.canvas.draw_idle()
+                    
+                    data_group = root[f"{group_path}/{pred_name}"]
+
+                    if "value" not in data_group:
+                        escrivir_en_pantalla("Falta 'value' en la sub-predicción {group_path}/{pred_name}")
+                        return
+                    
+                    vals = data_group["value"][:]
+                    if len(vals) == 0:
+                        escrivir_en_pantalla(f"Sin datos para representar {group_path}/{pred_name}")
+                        return
+                    
+                    ts_name = None
+                    if "time_ms" in data_group:
+                        ts_name = "time_ms"
+                    elif "time_fin_ms" in data_group:
+                        ts_name = "time_fin_ms"
+                    elif "time_ini_ms" in data_group:
+                        ts_name = "time_ini_ms"
+                    
+                    if ts_name is None:
+                        escrivir_en_pantalla(f"No se encontró ninguna serie temporal ('time_ms', 'time_fin_ms' ni 'time_ini_ms') en {group_path}/{pred_name}")
+                        return
+
+                    t_ms = data_group[ts_name][:]
+                    n = min(len(t_ms), len(vals))
+
+                    if n == 0:
+                        escrivir_en_pantalla(f"No hay muestras temporales para representar {group_path}/{pred_name}")
+                        return
+                    
+                    x_dt = [epoch1700_to_datetime(ts/1000) for ts in t_ms[:n]]
+                    x_num = mdates.date2num(x_dt)
+                    y = vals[:n]
+
+                    #fig_hist, ax_hist = plt.subplots(figsize=(10, 5))
+                    #ax_hist.margins(x=0)
+                    #ax_hist.grid(True, linestyle='--', alpha=0.5)
+
+                    ax_hist.plot(x_num, y, color='tab:blue', linewidth=1.2)
+                    
+                    is_rsa = (algo_name.strip().upper() == "RSA")
+
+                    if not is_rsa:
+                        dx_days = np.diff(x_num)
+                        if dx_days.size > 0:
+                            gaps_sec = dx_days * 86400.0
+                            idx_gaps = np.where(gaps_sec >= GAP_SEC)[0]
+                            for i in idx_gaps:
+                                ax_hist.plot([x_num[i], x_num[i+1]], [y[i], y[i+1]], color='red', linestyle='--', linewidth=1.8)
+
+                    ax_hist.set_xlim(x_num[0], x_num[-1])
+                    ax_hist.xaxis_date()
+                    ax_hist.xaxis.set_major_formatter(mdates.DateFormatter('%H:%M:%S'))
+                    ax_hist.set_title(f"Histórico (Scroll: Zoom | Arrastrar: Mover) - {algo_name} / {pred_name}", fontweight='bold')
+
+                    #ax_hist.grid(True, linestyle='--', alpha=0.5)
+
+                    fig_hist.tight_layout()
+                    canvas_hist.draw_idle()
+
+                except Exception as e:
+                    print(f"Error al abrir historico interactivo: {e}")
+
+            render_pred(default_pred)
+
+            # canvas_hist = FigureCanvasTkAgg(fig_hist, master=new_win)
+            # canvas_hist.get_tk_widget().pack(fill=tk.BOTH, expand=True)
             
             handler = ZoomPanHandler(ax_hist)
             new_win.handler = handler
@@ -265,15 +535,19 @@ class RealTimeApp(tk.Tk):
             fig_hist.canvas.mpl_connect('button_release_event', handler.on_release)
             fig_hist.canvas.mpl_connect('motion_notify_event', handler.on_motion)
 
-            fig_hist.tight_layout()
-            canvas_hist.draw()
+            def on_change_subpred(event=None):
+                sel = cbo_var.get()
+                self.historic_last_pred[algo_name] = sel
+                render_pred(sel)
+
+            cbo.bind("<<ComboboxSelected>>", on_change_subpred)
         
         except Exception as e:
-            print(f"Error al abrir histórico interactivo: {e}")
+            print(f"Error en el open_historical_window: {e}")
 
     def on_close(self):
         print("- Cerrando interfaz grafica... ")
-        self._stop_flag = True
+        self.stop_flag = True
         try:
             plt.close('all')
             self.quit()
