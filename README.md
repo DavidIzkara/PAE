@@ -1,6 +1,6 @@
 # PAE
 
 Encara queden moltes coses a canviar i millorar:
-- Fer seleccio de carpetes (i que no estiguin hardcoded)
-- Funcionalitat de exportar a excel(.csv) el historic guardat a un .zarr
-- Fer que el algoritme TEMP tingui multilinea
+- Canviar el main principal perque adapti la ultima versio del main_xapuza
+- Passar les variables y la programacio en general al angles
+- Comentar correctament el codi
