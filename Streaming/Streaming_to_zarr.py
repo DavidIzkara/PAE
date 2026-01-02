@@ -3,6 +3,8 @@ import time
 import numpy as np
 import threading
 import random 
+import tkinter as tk
+from tkinter import filedialog, messagebox
 import pandas as pd
 import vitaldb
 from Algorithms.check_availability import check_availability
@@ -10,19 +12,34 @@ from Zarr.utils_zarr_corrected import VISIBLE_ALGORITHMS, _DEFAULT_COMPRESSOR, S
 from Streaming.utils_Streaming import WAVE_TRACKS_FREQUENCIES, WAVE_STANDARD_RATE, obtener_vital_timestamp
 
 
-BASE_DIR = r"C:\Users\UX636EU\OneDrive - EY\Desktop\recordings" 
+BASE_DIR = "" 
 POLLING_INTERVAL = 1 
 
 # -------------------------------------------------------------------------------------------
 PRUEVAS = True
 
-DIRECTORIO_PRUEVA = r"C:\Users\UX636EU\OneDrive - EY\Desktop\recordings\251205" 
-ARCHIVO_VITAL = r"bd9cftsa6_251205_134609" 
+DIRECTORIO_PRUEVA = r"C:\Users\UX636EU\Downloads" 
+ARCHIVO_VITAL = r"xxycag2xd_250512_074519" 
 
 SIM_MIN_SECS = 20
 SIM_MAX_SECS = 30
 
 # -------------------------------------------------------------------------------------------
+
+def seleccionar_base_dir() -> str:
+    root = tk.Tk()
+    root.withdraw()
+    root.attributes('-topmost', True)
+    try:
+        dirpath = filedialog.askdirectory(title="Selecciona la carpeta que contenga las gravaciones de todos los dias (251031, 251205)")
+        if not dirpath:
+            return ""
+        return dirpath
+    finally:
+        try:
+            root.destroy()
+        except Exception:
+            pass
 
 def vital_to_zarr_streaming(
     vital_path: str,
@@ -30,7 +47,7 @@ def vital_to_zarr_streaming(
     zarr_path: str,
     last_read_counts: dict, 
     simulated_growth_seconds: float | None = None,
-    chunk_len: int = 30000,
+    chunk_len: int = 60000,
 ) -> dict: 
     """
     Processa l'arxiu vital utilitzant la lògica de freqüències i el slicing per 
@@ -39,6 +56,7 @@ def vital_to_zarr_streaming(
 
     vf = vitaldb.VitalFile(vital_path)
     #available_tracks = vf.get_track_names() # Recoje las cabezeras del vitalfile (nombre de las variables)
+    #print(available_tracks)
 
     #os.makedirs(os.path.dirname(zarr_path) or ".", exist_ok=True)
     root = open_root(zarr_path)
@@ -65,10 +83,7 @@ def vital_to_zarr_streaming(
         if track in WAVE_TRACKS_FREQUENCIES:
             track_type = "WAVE"
             rate_configurada = WAVE_TRACKS_FREQUENCIES.get(track, 0)    # Reconfiguramos los parametros para que sean los correctos para los WAVE
-            if rate_configurada > 0:
-                rate = rate_configurada 
-            else:
-                rate = WAVE_STANDARD_RATE # Si la rate no esta configurada en el import, usar la STANDARD (100 Hz)
+            rate = rate_configurada if rate_configurada > 0 else WAVE_STANDARD_RATE # Si la rate no esta configurada en el import, usar la STANDARD (100 Hz)
             interval = 1.0 / rate 
 
         # Leer la variable a la frequencia determinada (para evitar valores vacios o NaN)
@@ -177,15 +192,16 @@ def vital_to_zarr_streaming(
         written_tracks += 1
         written_any = True
 
-    print(f"-- Todas las variables actualizadas: {tracks_updated}")
+    
     root.attrs.setdefault("schema", "v1")
     root.attrs.setdefault("created_by", "Streaming")    # Variables del .zattrs del .zarr
-    root.attrs.setdefault("time_origin", "epoch1700_ms")
+    root.attrs.setdefault("time_origin", "epoch1970_ms")
     root.attrs["last_updated"] = timestamp
 
     if written_any:
         print(f"\n-- Escrita/actualitzada la col·lecció a: {zarr_path}")
         print(f"-- Tracks actualitzades: {written_tracks}, mostres afegides: {total_added_samples}")
+        print(f"-- Todas las variables actualizadas: {tracks_updated}")
     else:
         print(f"\n-- No s'ha escrit cap mostra nova.")
         
@@ -223,13 +239,7 @@ def verificar_y_procesar(vital_path, available_list, last_size, last_read_counts
             
             window_to_process = simulated_growth_seconds if PRUEVAS else None # En caso de no ser PRUEVAS, esto no sirve de nada
 
-            new_last_read_counts = vital_to_zarr_streaming( 
-                vital_path=vital_path,
-                available_tracks=available_list,
-                zarr_path=STORE_PATH, 
-                last_read_counts=last_read_counts, 
-                simulated_growth_seconds=window_to_process # Passarle al vital_to_zarr los segundos de simulacion
-            )
+            new_last_read_counts = vital_to_zarr_streaming(vital_path=vital_path, available_tracks=available_list, zarr_path=STORE_PATH, last_read_counts=last_read_counts, simulated_growth_seconds=window_to_process)
             break # En caso que se llegue aqui sales del bucle, significado que se ha actualizado el fitxero
 
         except Exception as e:
@@ -262,8 +272,10 @@ def main_loop(stop_event: threading.Event, algoritmos_cargados_event: threading.
     print(f"-- Iniciando Polling cada {POLLING_INTERVAL} segundos")
 
     vf = vitaldb.VitalFile(vital_path)
+    #print(vf.get_track_names())
 
     limpios = []
+    
     for track in vf.get_track_names():
         vd = vf.to_pandas(track_names = track, interval = 0, return_timestamp=True)
         vd_clean = vd[vd[track].notna()]
@@ -279,13 +291,13 @@ def main_loop(stop_event: threading.Event, algoritmos_cargados_event: threading.
                 if not vd_clean3.empty:
                     limpios.append(track)
     
-    lista_algoritmos = check_availability(limpios)
-    print("Algoritmos seleccionables: ", lista_algoritmos)
-    algoritmos_disponibles_visibles = [alg for alg in lista_algoritmos if alg in VISIBLE_ALGORITHMS]
-    print("Algoritmos visibles: ", algoritmos_disponibles_visibles)
-    algoritmos_disponibles.extend(algoritmos_disponibles_visibles)
-
-    algoritmos_cargados_event.set()
+    lista_algoritmos = check_availability(limpios)  # Lista algoritmos calculables 
+    print("Algoritmos seleccionables (ALL): ", lista_algoritmos)
+    algoritmos_disponibles_visibles = [alg for alg in lista_algoritmos if alg in VISIBLE_ALGORITHMS] # Lista algoritmos calculables y visibles
+    print("Algoritmos visibles (VISIBLE): ", algoritmos_disponibles_visibles)
+    algoritmos_disponibles[:] = [{"all": lista_algoritmos, "visible": algoritmos_disponibles_visibles}] # Se passan todos los algoritmos y solo los visibles
+    
+    algoritmos_cargados_event.set() # Se hace trigger para que el front sepa que hay nuevos algoritmos
 
     last_size = -1
     last_read_counts = {} # Inicializacion de la variable
@@ -302,13 +314,7 @@ def main_loop(stop_event: threading.Event, algoritmos_cargados_event: threading.
             else:
                 simulated_growth_seconds = 0
 
-            current_size, last_read_counts, finished = verificar_y_procesar(
-                vital_path, 
-                limpios,
-                last_size, 
-                last_read_counts,
-                simulated_growth_seconds
-            )
+            current_size, last_read_counts, finished = verificar_y_procesar(vital_path, limpios, last_size, last_read_counts, simulated_growth_seconds)
             last_size = current_size 
             
             # Control de finalitzación de simulación
